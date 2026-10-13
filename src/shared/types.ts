@@ -76,6 +76,8 @@ export interface Settings {
   speed: number;
   voices: Record<Lang, Record<Role, VoiceRef | null>>;
   reading: ReadingSettings;
+  /** While reading aloud, keep the spoken sentence in the middle of the view. */
+  focusMode: boolean;
 }
 
 export interface VoiceOption extends VoiceRef {
@@ -136,10 +138,25 @@ export interface NotesFile {
   annotations: Annotation[];
 }
 
+/** Where the user was in a document, so that it opens there again. */
+export interface Progress {
+  view: 'pdf' | 'reading';
+  /** The pages' zoom as PDF.js counts it, 1 being 100 %, or null for fit to width. */
+  zoom: number | null;
+  /** The page at the top of the view, and how far down it the top edge lies, from 0 to 1. */
+  page: number;
+  offset: number;
+  /** The sentence the voice read last: its page and its place among that page's sentences. */
+  sentence: { page: number; index: number } | null;
+}
+
 export interface OpenedPdf {
+  /** Names this opening of a file; progress is saved against it, never against a path. */
+  id: number;
   name: string;
   data: Uint8Array;
   notes: NotesFile | null;
+  progress: Progress | null;
 }
 
 /** The API the preload script exposes to the renderer as `window.api`. */
@@ -153,5 +170,7 @@ export interface Api {
   voices(): Promise<VoiceOption[]>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
+  /** Remembers where the user is in the document that opening `id` gave. Stale ids are ignored. */
+  saveProgress(id: number, progress: Progress): Promise<void>;
   synthesize(request: SynthRequest): Promise<SynthResult>;
 }

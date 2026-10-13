@@ -1,5 +1,6 @@
 import { READING_LIMITS, resolveVoice } from '../../shared/settings';
-import type { Api, OpenedPdf, RawRange, Utterance } from '../../shared/types';
+import type { Api, OpenedPdf, Progress, RawRange, Utterance } from '../../shared/types';
+import { focusBand, scrollToCentre } from './focus';
 import { paint } from './highlights';
 import { NotesPanel } from './notes-panel';
 import { Pdf } from './pdf';
@@ -19,6 +20,8 @@ const api = window.api;
 const $ = <T extends HTMLElement>(selector: string): T => document.querySelector<T>(selector)!;
 const FOLLOW_PAUSE_MS = 3000;
 const SEARCH_DELAY_MS = 200;
+/** A run of scrolling is reported once it has paused this long; the main process limits writes too. */
+const PROGRESS_DELAY_MS = 150;
 
 function status(message: string, error = false): void {
   $('#status').textContent = message;
@@ -34,9 +37,18 @@ const reading: ReadingView = new ReadingView(pdf, (page) => {
 let view: TextView = pdf;
 
 let spoken: { utterance: Utterance; word: number } | undefined;
+/** The opening of the document on screen, which its progress is saved against. */
+let documentId = 0;
+/** Where Play continues the first time it is pressed: the sentence the voice left off at. */
+let resume: { page: number; index: number } | undefined;
+/** The sentence the voice read last in this document, kept for the next time it is opened. */
+let lastSentence: { page: number; index: number } | null = null;
+/** The last place sent, standing in for anything that cannot be read off the screen yet. */
+let kept: Progress | null = null;
+let progressTimer: ReturnType<typeof setTimeout> | undefined;
 let lastWheel = 0;
-/** A passage to scroll to once its page has been rendered. */
-let awaited: { page: number; ranges: readonly RawRange[] } | undefined;
+/** A passage to scroll to once its page has been rendered; `centre` is the focus mode's way of scrolling. */
+let awaited: { page: number; ranges: readonly RawRange[]; centre?: boolean } | undefined;
 
 function paintSpoken(): void {
   const utterance = spoken?.utterance;
@@ -68,6 +80,64 @@ function follow(): void {
   reveal(utterance.page, utterance.words[word]?.ranges ?? utterance.ranges);
 }
 
+/**
+ * Focus mode: puts the spoken sentence in the middle of the view, or, when it is taller than
+ * most of the view, the line being read. A new sentence does this even if the user has just
+ * scrolled; within a sentence only a tall one follows the words, so scrolling is not fought.
+ */
+function centreSpoken(newSentence: boolean): void {
+  if (!spoken) return;
+  const { utterance, word } = spoken;
+  const boxes = view.domRanges(utterance.page, utterance.ranges).map((r) => r.getBoundingClientRect());
+  if (boxes.length === 0) {
+    awaited = { page: utterance.page, ranges: utterance.ranges, centre: true };
+    view.showPage(utterance.page);
+    return;
+  }
+  awaited = undefined;
+  const sentence = {
+    top: Math.min(...boxes.map((b) => b.top)),
+    bottom: Math.max(...boxes.map((b) => b.bottom)),
+  };
+  const current = utterance.words[Math.max(0, word)];
+  const line = current && view.domRanges(utterance.page, current.ranges)[0]?.getBoundingClientRect();
+  const box = view.container.getBoundingClientRect();
+  const band = focusBand(sentence, line, box.height);
+  if (band === sentence && !newSentence) return;
+  const delta = scrollToCentre(band, box.top + box.height / 2);
+  if (Math.abs(delta) >= 1) {
+    view.container.scrollTo({ top: view.container.scrollTop + delta, behavior: 'smooth' });
+  }
+}
+
+/** Whether the voice is reading and the user wants the sentence kept in the middle. */
+const focusing = (): boolean => settings.focusMode && reader.state === 'playing';
+
+/** Where the user is in the document, or null before there is one. */
+function currentProgress(): Progress | null {
+  if (!pdf.pageCount) return null;
+  const base = kept ?? { view: 'pdf', zoom: null, page: 1, offset: 0, sentence: null };
+  // A view that has not yet been given its saved place would report the top of the document.
+  const placed = view === pdf ? pdf.laidOut : reading.settled;
+  return {
+    view: view === pdf ? 'pdf' : 'reading',
+    zoom: pdf.laidOut ? Math.round(pdf.scale * 1000) / 1000 : base.zoom,
+    ...(placed ? view.scrollAnchor() : { page: base.page, offset: base.offset }),
+    sentence: lastSentence,
+  };
+}
+
+/** Sends the place in the document to be remembered, soon after the last change. */
+function remember(): void {
+  clearTimeout(progressTimer);
+  progressTimer = setTimeout(() => {
+    const place = currentProgress();
+    if (!place) return;
+    kept = place;
+    void api.saveProgress(documentId, place);
+  }, PROGRESS_DELAY_MS);
+}
+
 const showPageInfo = (): void => {
   $('#page-info').textContent = pdf.pageCount ? `${view.currentPage} / ${pdf.pageCount}` : '';
 };
@@ -87,11 +157,24 @@ const reader = new Reader({
     });
   },
   onChange: (state, utterance, word) => {
+    const newSentence = utterance !== undefined && utterance !== spoken?.utterance;
     // A pause or resume carries no utterance and keeps the current highlight.
     if (utterance) spoken = { utterance, word };
     else if (state === 'idle') spoken = undefined;
+    if (newSentence) {
+      resume = undefined;
+      const sentence = utterance;
+      void pdf.pageUtterances(sentence.page).then((all) => {
+        const index = all.indexOf(sentence);
+        if (index < 0) return;
+        lastSentence = { page: sentence.page, index };
+        remember();
+      });
+    }
     paintSpoken();
-    follow();
+    // Audio stops a moment after a pause, so a word can still arrive then: it is centred too.
+    if (settings.focusMode) centreSpoken(newSentence);
+    else follow();
     $('#play').textContent = state === 'playing' ? '⏸' : '▶';
     if (state === 'idle') status('');
     else if (utterance && word < 0) status(`Preparing: ${utterance.text.slice(0, 80)}`);
@@ -126,15 +209,18 @@ function rendered(page: number): void {
   paintSpoken();
   search.paint();
   if (awaited?.page === page) {
-    const { ranges } = awaited;
+    const { ranges, centre } = awaited;
     // One attempt only: a passage that cannot be found must not keep pulling the view back.
     awaited = undefined;
-    if (view.domRanges(page, ranges).length > 0) reveal(page, ranges);
+    if (view.domRanges(page, ranges).length > 0) {
+      if (centre && focusing()) centreSpoken(true);
+      else reveal(page, ranges);
+    }
   }
 }
 
 pdf.events.on('textlayerrendered', async ({ pageNumber }: { pageNumber: number }) => {
-  await pdf.pageBlocks(pageNumber);
+  await pdf.align(pageNumber);
   if (view === pdf) rendered(pageNumber);
 });
 pdf.events.on('pagechanging', showPageInfo);
@@ -142,6 +228,13 @@ reading.container.addEventListener('scroll', showPageInfo, { passive: true });
 for (const { container } of [pdf, reading]) {
   container.addEventListener('wheel', () => (lastWheel = performance.now()), { passive: true });
 }
+// What the progress file holds: where the view is scrolled to, and the zoom.
+for (const container of [pdf.container, reading.container] as HTMLElement[]) {
+  container.addEventListener('scroll', remember, { passive: true });
+}
+pdf.events.on('scalechanging', remember);
+// Registered after the viewer's own, so the saved zoom and place are in effect by now.
+pdf.events.on('pagesinit', remember);
 
 function setView(next: TextView): void {
   const page = view.currentPage;
@@ -158,15 +251,26 @@ function setView(next: TextView): void {
   notes.paint();
   paintSpoken();
   search.paint();
-  if (spoken) reveal(spoken.utterance.page, spoken.utterance.ranges);
+  if (spoken) {
+    if (focusing()) centreSpoken(true);
+    else reveal(spoken.utterance.page, spoken.utterance.ranges);
+  }
   showPageInfo();
+  remember();
 }
 
 async function show(opened: OpenedPdf | null): Promise<void> {
   if (!opened) return;
   reader.stop();
+  // Nothing about the previous document may be reported as this one's.
+  clearTimeout(progressTimer);
+  const saved = opened.progress;
+  documentId = opened.id;
+  kept = saved;
+  resume = saved?.sentence ?? undefined;
+  lastSentence = saved?.sentence ?? null;
   try {
-    await pdf.open(opened.data);
+    await pdf.open(opened.data, saved ?? undefined);
   } catch (error) {
     status(`Could not open ${opened.name}: ${error instanceof Error ? error.message : String(error)}`, true);
     return;
@@ -177,6 +281,11 @@ async function show(opened: OpenedPdf | null): Promise<void> {
   $<HTMLInputElement>('#search').value = '';
   void search.find('');
   reading.reset();
+  // Back in the view the document was left in, at the place it was left.
+  if (saved && (saved.view === 'reading') !== (view === reading)) {
+    setView(saved.view === 'reading' ? reading : pdf);
+  }
+  if (saved?.view === 'reading') reading.showPage(saved.page, saved.offset);
   if (view === reading) void reading.build();
   showPageInfo();
   status('');
@@ -184,21 +293,60 @@ async function show(opened: OpenedPdf | null): Promise<void> {
 
 const open = async (): Promise<void> => show(await api.openPdf());
 const playPause = (): void => {
-  if (pdf.pageCount > 0) reader.toggle({ page: view.currentPage, index: 0 });
+  if (pdf.pageCount > 0) reader.toggle(resume ?? { page: view.currentPage, index: 0 });
 };
 const saveSettings = (): void => void api.setSettings(settings);
 
+const focusButton = $('#focus-mode');
+const showFocus = (): void => focusButton.setAttribute('aria-pressed', String(settings.focusMode));
+showFocus();
+focusButton.addEventListener('click', () => {
+  settings.focusMode = !settings.focusMode;
+  showFocus();
+  saveSettings();
+  if (focusing()) centreSpoken(true);
+});
+
 /** Zooms the PDF pages, or changes the text size in the reading view. */
-function zoom(direction: 1 | -1): void {
+function zoom(direction: 1 | -1, steps = 1): void {
   if (view === pdf) {
-    pdf.zoom(direction > 0 ? 1.1 : 1 / 1.1);
+    pdf.zoom((direction > 0 ? 1.1 : 1 / 1.1) ** steps);
     return;
   }
   const size = $<HTMLInputElement>('#reading-size');
   const [min, max] = READING_LIMITS.size;
-  size.value = String(Math.min(max, Math.max(min, settings.reading.size + 2 * direction)));
+  size.value = String(Math.min(max, Math.max(min, settings.reading.size + 2 * direction * steps)));
   size.dispatchEvent(new Event('input'));
   size.dispatchEvent(new Event('change'));
+}
+
+/** Wheel movement per notch of a mouse wheel. */
+const WHEEL_NOTCH = 100;
+/** Zoom steps of 10 %, or two pixels of text, that Ctrl+wheel has asked for but not yet applied. */
+let wheelSteps = 0;
+
+/**
+ * Ctrl+wheel zooms the document like the keys do, and keeps the point under the pointer where
+ * it was. Chromium's own page zoom would scale the toolbar, so the event is taken.
+ */
+function zoomByWheel(event: WheelEvent): void {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  wheelSteps -= event.deltaY / WHEEL_NOTCH;
+  if (view === pdf) {
+    // A touchpad pinch sends small deltas: apply the step once it is worth a 1 % change.
+    const factor = 1.1 ** wheelSteps;
+    if (Math.abs(factor - 1) < 0.01) return;
+    wheelSteps = 0;
+    pdf.zoom(factor, { x: event.clientX, y: event.clientY });
+  } else if (Math.abs(wheelSteps) >= 1) {
+    const whole = Math.trunc(wheelSteps);
+    wheelSteps -= whole;
+    zoom(whole > 0 ? 1 : -1, Math.abs(whole));
+  }
+}
+for (const container of [pdf.container, reading.container] as HTMLElement[]) {
+  container.addEventListener('wheel', zoomByWheel, { passive: false });
 }
 
 $('#open').addEventListener('click', () => void open());
@@ -266,8 +414,14 @@ document.addEventListener('keydown', (event) => {
   else if (event.ctrlKey && event.key === 'f') {
     event.preventDefault();
     searchBox.select();
-  } else if (event.ctrlKey && (event.key === '+' || event.key === '=')) zoom(1);
-  else if (event.ctrlKey && event.key === '-') zoom(-1);
+  } else if (event.ctrlKey && (event.key === '+' || event.key === '=')) {
+    // Taken here so that nothing else, such as a menu shortcut, zooms the whole window too.
+    event.preventDefault();
+    zoom(1);
+  } else if (event.ctrlKey && event.key === '-') {
+    event.preventDefault();
+    zoom(-1);
+  }
 });
 
 if (voices.length === 0) status('No speech models are installed. Run "npm run models", then restart.', true);

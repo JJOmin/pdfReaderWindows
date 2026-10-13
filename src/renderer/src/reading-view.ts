@@ -22,7 +22,7 @@ export class ReadingView implements TextView {
   private generation = 0;
   private built = false;
   /** A page asked for before its text was built: scrolled to as soon as it appears. */
-  private wanted: number | undefined;
+  private wanted: { page: number; offset: number } | undefined;
 
   constructor(
     private readonly pdf: Pdf,
@@ -56,7 +56,7 @@ export class ReadingView implements TextView {
         section.append(element);
       }
       this.article.append(section);
-      if (this.wanted === page) this.showPage(page);
+      if (this.wanted?.page === page) this.showPage(page, this.wanted.offset);
       this.onPage(page);
     }
   }
@@ -71,10 +71,33 @@ export class ReadingView implements TextView {
     return page;
   }
 
-  showPage(page: number): void {
+  showPage(page: number, offset = 0): void {
     const section = this.article.children[page - 1];
-    this.wanted = section ? undefined : page;
-    section?.scrollIntoView({ block: 'start' });
+    this.wanted = section ? undefined : { page, offset };
+    if (!section) return;
+    section.scrollIntoView({ block: 'start' });
+    if (offset <= 0) return;
+    const box = section.getBoundingClientRect();
+    this.container.scrollTop += box.top + offset * box.height - this.container.getBoundingClientRect().top;
+  }
+
+  /** True once the page asked for last has appeared, so that the scroll position means something. */
+  get settled(): boolean {
+    return this.wanted === undefined && this.article.children.length > 0;
+  }
+
+  scrollAnchor(): { page: number; offset: number } {
+    const top = this.container.getBoundingClientRect().top;
+    let anchor = { page: 1, offset: 0 };
+    for (const section of this.article.children) {
+      const box = section.getBoundingClientRect();
+      if (box.top > top + 1) break;
+      anchor = {
+        page: Number((section as HTMLElement).dataset.page),
+        offset: Math.min(0.999, Math.max(0, (top - box.top) / box.height)),
+      };
+    }
+    return anchor;
   }
 
   domRanges(page: number, ranges: readonly RawRange[]): Range[] {

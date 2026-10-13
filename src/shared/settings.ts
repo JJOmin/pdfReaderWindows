@@ -4,6 +4,7 @@ import {
   READING_THEMES,
   ROLES,
   type Lang,
+  type Progress,
   type ReadingSettings,
   type Role,
   type Settings,
@@ -22,6 +23,12 @@ export const READING_LIMITS = {
   letterSpacing: [-0.08, 0.2, 0.01],
 } as const satisfies Record<string, readonly [number, number, number]>;
 
+/** The zoom of the PDF pages: smallest and largest PDF.js scale. */
+export const ZOOM_LIMITS = [0.3, 5] as const;
+
+/** Documents whose place is remembered; the one not opened for longest is forgotten first. */
+export const PROGRESS_LIMIT = 300;
+
 export const defaultSettings = (): Settings => ({
   speed: 1,
   voices: {
@@ -37,6 +44,7 @@ export const defaultSettings = (): Settings => ({
     },
   },
   reading: { font: 'Verdana', size: 20, lineHeight: 1.7, letterSpacing: 0.03, theme: 'sepia' },
+  focusMode: false,
 });
 
 const isVoice = (v: unknown): v is VoiceRef =>
@@ -66,6 +74,7 @@ export function normalizeSettings(value: unknown): Settings {
   for (const key of ['size', 'lineHeight', 'letterSpacing'] as const) {
     settings.reading[key] = clamp(reading[key], READING_LIMITS[key], settings.reading[key]);
   }
+  if (typeof input.focusMode === 'boolean') settings.focusMode = input.focusMode;
   return settings;
 }
 
@@ -85,4 +94,66 @@ export function resolveVoice(
     if (has(candidate)) return candidate;
   }
   return available.find((o) => o.langs.includes(lang)) ?? available[0];
+}
+
+const integer = (value: unknown, min: number): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) && value >= min ? value : undefined;
+
+/** Builds a valid place in a document from anything read from disk or sent by the renderer. */
+export function normalizeProgress(value: unknown): Progress | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const input = value as Partial<Record<keyof Progress, unknown>>;
+  const page = integer(input.page, 1);
+  if (page === undefined) return null;
+  const sentence = input.sentence as { page?: unknown; index?: unknown } | null | undefined;
+  const sentencePage = integer(sentence?.page, 1);
+  const sentenceIndex = integer(sentence?.index, 0);
+  return {
+    view: input.view === 'reading' ? 'reading' : 'pdf',
+    zoom:
+      typeof input.zoom === 'number' && Number.isFinite(input.zoom)
+        ? Math.min(ZOOM_LIMITS[1], Math.max(ZOOM_LIMITS[0], input.zoom))
+        : null,
+    page,
+    offset:
+      typeof input.offset === 'number' && Number.isFinite(input.offset)
+        ? Math.min(0.999, Math.max(0, input.offset))
+        : 0,
+    sentence:
+      sentencePage !== undefined && sentenceIndex !== undefined
+        ? { page: sentencePage, index: sentenceIndex }
+        : null,
+  };
+}
+
+/** Everything remembered about documents, keyed by their absolute path. */
+export interface ProgressStore {
+  version: 1;
+  documents: Record<string, Progress & { updated: number }>;
+}
+
+/** Reads the progress file, which may hold anything: entries that are not valid are dropped. */
+export function parseProgressStore(value: unknown): ProgressStore {
+  const store: ProgressStore = { version: 1, documents: {} };
+  const documents = (value as { documents?: unknown } | null)?.documents;
+  if (typeof documents !== 'object' || documents === null) return store;
+  for (const [key, entry] of Object.entries(documents)) {
+    const progress = normalizeProgress(entry);
+    const updated = (entry as { updated?: unknown } | null)?.updated;
+    if (progress && typeof updated === 'number' && Number.isFinite(updated)) {
+      store.documents[key] = { ...progress, updated };
+    }
+  }
+  return store;
+}
+
+/** Records a document's place, and forgets the documents untouched for longest above the limit. */
+export function rememberProgress(store: ProgressStore, key: string, progress: Progress, now: number): void {
+  store.documents[key] = { ...progress, updated: now };
+  const keys = Object.keys(store.documents);
+  if (keys.length <= PROGRESS_LIMIT) return;
+  const newest = new Set(
+    keys.sort((a, b) => store.documents[b]!.updated - store.documents[a]!.updated).slice(0, PROGRESS_LIMIT),
+  );
+  store.documents = Object.fromEntries(Object.entries(store.documents).filter(([key]) => newest.has(key)));
 }

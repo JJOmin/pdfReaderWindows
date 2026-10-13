@@ -16,7 +16,10 @@ export interface TextView {
   /** The element that scrolls. */
   readonly container: HTMLElement;
   readonly currentPage: number;
-  showPage(page: number): void;
+  /** Scrolls to a page, or to `offset` (0 to 1) of the way down it. */
+  showPage(page: number, offset?: number): void;
+  /** The page at the top edge of the view and how far down it that edge lies, from 0 to 1. */
+  scrollAnchor(): { page: number; offset: number };
   /** DOM ranges covering raw ranges of a page. Empty while that page is not on screen. */
   domRanges(page: number, ranges: readonly RawRange[]): Range[];
   /** The page and raw span a DOM range covers. A range spanning pages is cut to the first. */

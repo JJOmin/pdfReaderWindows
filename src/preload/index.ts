@@ -11,6 +11,7 @@ const api: Api = {
   voices: () => ipcRenderer.invoke('tts:voices'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (settings) => ipcRenderer.invoke('settings:set', settings),
+  saveProgress: (id, progress) => ipcRenderer.invoke('progress:save', id, progress),
   synthesize: (request) => ipcRenderer.invoke('tts:synthesize', request),
 };
 

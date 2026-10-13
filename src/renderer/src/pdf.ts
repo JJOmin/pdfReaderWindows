@@ -3,10 +3,12 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { EventBus, PDFLinkService, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import { guessLang } from '../../shared/language';
+import { ZOOM_LIMITS } from '../../shared/settings';
 import { rawString, TEXT_CONTENT_OPTIONS, toRawItems } from '../../shared/items';
 import { layoutPage, type Block } from '../../shared/layout';
-import type { Lang, RawRange, Utterance } from '../../shared/types';
+import type { Lang, RawItem, RawRange, Utterance } from '../../shared/types';
 import { buildUtterances } from '../../shared/utterances';
+import { glyphBoxes, placeOnRaw, segmentRun, type FontMetrics, type Placement } from './glyphs';
 import { lineRects, type Span, type TextView } from './view';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -18,6 +20,18 @@ export interface PageBlocks {
   /** Every text run of the page concatenated: the string raw offsets point into. */
   raw: string;
   blocks: Block[];
+  /** The text runs in stream order, with where PDF.js puts each. */
+  items: RawItem[];
+  /** The page's box in PDF units: left, bottom, right, top. */
+  view: number[];
+}
+
+/** How a document is shown when it is opened again: its zoom and the place at the top of the view. */
+export interface Restore {
+  /** PDF.js scale, or null for the page width. */
+  zoom: number | null;
+  page: number;
+  offset: number;
 }
 
 /** The text nodes of a rendered text layer and the raw offset each starts at. */
@@ -59,6 +73,60 @@ function toDomRanges(index: TextIndex, ranges: readonly RawRange[]): Range[] {
   });
 }
 
+let measuring: CanvasRenderingContext2D | undefined;
+
+/** Width of a text in a font, in ems. */
+function emWidth(family: string, text: string): number {
+  measuring ??= document.createElement('canvas').getContext('2d')!;
+  measuring.font = `100px ${family}`;
+  return measuring.measureText(text).width / 100;
+}
+
+/**
+ * Re-places a rendered text layer so every word sits where the PDF draws it. PDF.js puts a
+ * whole line in one span and stretches it evenly, which drifts from the drawn words by up to
+ * a character (see glyphs.ts). Each run becomes one span per word and per gap, with the same
+ * style, its own left edge and a stretch that makes it exactly as wide as the drawn word.
+ * The characters and their order are unchanged, so raw offsets still hold. A layer or run that
+ * does not match what was expected is left as PDF.js made it.
+ */
+function placeLayer(layer: Element, text: PageBlocks, place: Placement): void {
+  const spans = [...layer.querySelectorAll<HTMLSpanElement>('span')].filter(
+    (span) => !span.classList.contains('markedContent') && span.firstChild instanceof Text,
+  );
+  const runs: { item: RawItem; start: number }[] = [];
+  let start = 0;
+  for (const item of text.items) {
+    if (item.str !== '') runs.push({ item, start });
+    start += item.str.length;
+  }
+  if (spans.length !== runs.length) return;
+  if (spans.some((span, i) => span.dataset.placed !== undefined || span.textContent !== runs[i]!.item.str))
+    return;
+
+  const [left = 0, bottom = 0, right = 0] = text.view;
+  const pageWidth = right - left;
+  spans.forEach((span, i) => {
+    const { item, start } = runs[i]!;
+    if (item.rotated) return;
+    const segments = segmentRun(item.str, start, place, { x: item.x, y: item.y + bottom });
+    if (!segments) return;
+    const family = span.style.fontFamily;
+    const height = parseFloat(span.style.getPropertyValue('--font-height'));
+    span.replaceWith(
+      ...segments.map((segment) => {
+        const piece = span.cloneNode(false) as HTMLSpanElement;
+        piece.textContent = item.str.slice(segment.from, segment.to);
+        piece.dataset.placed = '';
+        piece.style.left = `${(((segment.x0 - left) / pageWidth) * 100).toFixed(3)}%`;
+        const natural = emWidth(family, piece.textContent) * height;
+        if (natural > 0) piece.style.setProperty('--scale-x', String((segment.x1 - segment.x0) / natural));
+        return piece;
+      }),
+    );
+  });
+}
+
 /** The open document: its text, and the view that shows its pages as the PDF draws them. */
 export class Pdf implements TextView {
   readonly events = new EventBus();
@@ -71,10 +139,15 @@ export class Pdf implements TextView {
   private utterances = new Map<number, Promise<Utterance[]>>();
   /** Pages whose text has been read, for the synchronous lookups the views need. */
   private loaded = new Map<number, PageBlocks>();
+  private placements = new Map<number, Promise<Placement | undefined>>();
   private lang: Promise<Lang> | undefined;
   private indexes = new WeakMap<Element, TextIndex>();
   /** Set when the document arrived while this view was hidden and could not be sized. */
   private needsFit = false;
+  /** Where the document was left, applied once its pages can be laid out. */
+  private restore: Restore | undefined;
+  /** False from opening a document until its pages have their zoom and place. */
+  laidOut = false;
 
   constructor() {
     this.links = new PDFLinkService({ eventBus: this.events });
@@ -98,7 +171,15 @@ export class Pdf implements TextView {
     return this.viewer.currentPageNumber;
   }
 
-  async open(data: Uint8Array): Promise<void> {
+  /** The zoom of the pages as PDF.js counts it: 1 is 100 %. */
+  get scale(): number {
+    return this.viewer.currentScale;
+  }
+
+  /** Opens a document. `restore` is the zoom and place to show it at instead of the page width. */
+  async open(data: Uint8Array, restore?: Restore): Promise<void> {
+    this.restore = restore;
+    this.laidOut = false;
     const old = this.task;
     this.task = pdfjs.getDocument({
       data,
@@ -111,30 +192,82 @@ export class Pdf implements TextView {
     this.blocks.clear();
     this.utterances.clear();
     this.loaded.clear();
+    this.placements.clear();
     this.lang = undefined;
     this.viewer.setDocument(this.doc);
     this.links.setDocument(this.doc);
     void old?.destroy();
   }
 
+  /** Gives a new document its zoom, the saved one or the page width, and its saved place. */
   private fit(): void {
     this.needsFit = this.container.clientWidth === 0;
-    if (!this.needsFit) this.viewer.currentScaleValue = 'page-width';
+    if (this.needsFit) return;
+    const restore = this.restore;
+    this.restore = undefined;
+    if (restore?.zoom) this.viewer.currentScale = restore.zoom;
+    else this.viewer.currentScaleValue = 'page-width';
+    this.laidOut = true;
+    if (restore) this.showPage(Math.min(restore.page, this.pageCount), restore.offset);
   }
 
   /** Call when this view becomes visible again: PDF.js cannot lay out pages while hidden. */
   shown(page: number): void {
+    // A document that is being given its saved place must not be moved to where the view was.
+    const placing = this.needsFit && this.restore !== undefined;
     if (this.needsFit) this.fit();
     this.viewer.update();
-    this.showPage(page);
+    if (!placing) this.showPage(page);
   }
 
-  zoom(factor: number): void {
-    this.viewer.currentScale = Math.min(5, Math.max(0.3, this.viewer.currentScale * factor));
+  /** Multiplies the zoom. With `origin` (client coordinates) that point of the page stays put. */
+  zoom(factor: number, origin?: { x: number; y: number }): void {
+    const current = this.viewer.currentScale;
+    const target = Math.min(ZOOM_LIMITS[1], Math.max(ZOOM_LIMITS[0], current * factor));
+    if (!origin) {
+      this.viewer.currentScale = target;
+      return;
+    }
+    // The point as a fraction of the page's content box, since the page's border does not scale.
+    const page = document.elementFromPoint(origin.x, origin.y)?.closest<HTMLElement>('.page');
+    const box = page?.getBoundingClientRect();
+    const at = page &&
+      box && {
+        fx: (origin.x - box.left - page.clientLeft) / page.clientWidth,
+        fy: (origin.y - box.top - page.clientTop) / page.clientHeight,
+      };
+    // A short delay lets a run of wheel events scale the pages first and draw them once.
+    this.viewer.updateScale({ scaleFactor: target / current, drawingDelay: 150 });
+    if (!page || !at) return;
+    const now = page.getBoundingClientRect();
+    this.container.scrollLeft += now.left + page.clientLeft + at.fx * page.clientWidth - origin.x;
+    this.container.scrollTop += now.top + page.clientTop + at.fy * page.clientHeight - origin.y;
   }
 
-  showPage(page: number): void {
+  showPage(page: number, offset = 0): void {
     this.viewer.scrollPageIntoView({ pageNumber: page });
+    const element = this.container.querySelector<HTMLElement>(`.page[data-page-number="${page}"]`);
+    if (!element || offset <= 0) return;
+    const box = element.getBoundingClientRect();
+    this.container.scrollTop +=
+      box.top +
+      element.clientTop +
+      offset * element.clientHeight -
+      this.container.getBoundingClientRect().top;
+  }
+
+  scrollAnchor(): { page: number; offset: number } {
+    const top = this.container.getBoundingClientRect().top;
+    let anchor = { page: 1, offset: 0 };
+    for (const element of this.container.querySelectorAll<HTMLElement>('.page')) {
+      const inner = element.getBoundingClientRect().top + element.clientTop;
+      if (inner > top + 1) break;
+      anchor = {
+        page: Number(element.dataset.pageNumber),
+        offset: Math.min(0.999, Math.max(0, (top - inner) / element.clientHeight)),
+      };
+    }
+    return anchor;
   }
 
   pageBlocks(page: number): Promise<PageBlocks> {
@@ -146,13 +279,52 @@ export class Pdf implements TextView {
         const content = await proxy.getTextContent(TEXT_CONTENT_OPTIONS);
         const [, bottom = 0, , top = 0] = proxy.view;
         const items = toRawItems(content.items, bottom);
-        const text = { raw: rawString(items), blocks: layoutPage(items, top - bottom) };
+        const text = {
+          raw: rawString(items),
+          blocks: layoutPage(items, top - bottom),
+          items,
+          view: proxy.view,
+        };
         this.loaded.set(page, text);
         return text;
       })();
       this.blocks.set(page, result);
     }
     return result;
+  }
+
+  /** Where the PDF draws each character of a page, or undefined if that could not be worked out. */
+  private placement(page: number): Promise<Placement | undefined> {
+    let result = this.placements.get(page);
+    if (!result) {
+      result = (async () => {
+        try {
+          const [proxy, { raw }] = await Promise.all([this.doc!.getPage(page), this.pageBlocks(page)]);
+          const list = await proxy.getOperatorList();
+          const fontOf = (name: string): FontMetrics | undefined => {
+            if (!proxy.commonObjs.has(name)) return undefined;
+            const font = proxy.commonObjs.get(name) as { fontMatrix?: number[]; vertical?: boolean } | null;
+            return font
+              ? { scale: font.fontMatrix?.[0] ?? 0.001, vertical: font.vertical === true }
+              : undefined;
+          };
+          return placeOnRaw(raw, glyphBoxes(list.fnArray, list.argsArray, pdfjs.OPS, fontOf));
+        } catch {
+          // shortcut: a page whose operator list cannot be read keeps PDF.js's layout, upgrade if that shows up
+          return undefined;
+        }
+      })();
+      this.placements.set(page, result);
+    }
+    return result;
+  }
+
+  /** Puts the words of a page's rendered text layer where the PDF draws them. */
+  async align(page: number): Promise<void> {
+    const layer = this.container.querySelector(`.page[data-page-number="${page}"] .textLayer`);
+    if (!layer) return;
+    const [text, place] = await Promise.all([this.pageBlocks(page), this.placement(page)]);
+    if (place && layer.isConnected) placeLayer(layer, text, place);
   }
 
   /** The document's main language, judged from its first pages. */
@@ -229,6 +401,7 @@ export class Pdf implements TextView {
    */
   async quads(page: number, passages: readonly (readonly RawRange[])[]): Promise<number[][][]> {
     const proxy = await this.doc!.getPage(page);
+    const [text, place] = await Promise.all([this.pageBlocks(page), this.placement(page)]);
     const viewport = proxy.getViewport({ scale: 1 });
     const host = document.createElement('div');
     host.className = 'measure';
@@ -244,6 +417,7 @@ export class Pdf implements TextView {
         container: layer,
         viewport,
       }).render();
+      if (place) placeLayer(layer, text, place);
       const index = indexText(layer);
       const origin = host.getBoundingClientRect();
       const point = (x: number, y: number): number[] =>

@@ -8,8 +8,21 @@ marked. German and English. Everything runs on the local PC.
 
 ## What works today (v0.2)
 
-**Viewing.** Open a PDF from the dialog, with Ctrl+O, or as a command line argument. Scroll, zoom,
+**Viewing.** Open a PDF from the dialog, with Ctrl+O, or as a command line argument. Scroll,
 selectable text, working links.
+
+- **Zoom** with Ctrl+wheel, Ctrl+Plus and Ctrl+Minus (the main keys and the numpad), or the
+  toolbar buttons. Only the document zooms: the toolbar and the sidebar keep their size, and the
+  window's own zoom, which would scale them, is switched off. Ctrl+wheel keeps the point under
+  the pointer where it is. In the reading view the same inputs change the text size by two
+  pixels a step.
+- **Marks, the spoken word and search hits sit on the letters they belong to.** See limit 5 for
+  how close, and where that stops being true.
+- **A file reopens where it was left**: the view (PDF or reading), the zoom, the place in the
+  document and the sentence the voice was in. The first press of Play continues from that
+  sentence, whatever you scrolled to since. This is kept per file in `progress.json` in the
+  app's data folder, written at most once a second and when the window closes, for the 300 files
+  used last.
 
 **Reading view.** The toolbar button "Reading view" swaps the PDF pages for the text alone:
 headings and paragraphs, hyphenation undone, no headers, footers or page numbers.
@@ -27,6 +40,11 @@ headings and paragraphs, hyphenation undone, no headers, footers or page numbers
 - "Read from here" in the menu that appears on a text selection.
 - The sentence is tinted, the current word is marked, and the view follows the voice unless you
   scrolled in the last three seconds.
+- **Focus** (toolbar toggle, off by default, remembered). While the voice is reading, each new
+  sentence is scrolled to the vertical middle of the view, even if you scrolled a moment ago.
+  A sentence taller than 60 % of the view cannot be centred as a whole, so the line of the word
+  being spoken is kept in the middle instead, word by word. Works in both views. A sentence at
+  the very top or bottom of the document cannot reach the middle, as there is nothing to scroll.
 - Word timings are measured, not estimated: a small speech recogniser listens to each synthesised
   sentence and reports when each word starts. Without the recogniser model the app falls back to
   an estimate by word length.
@@ -67,9 +85,19 @@ These are the honest gaps, in rough order of how much they hurt.
 3. **Reading order follows the PDF's internal order.** That is correct for LaTeX and Word output.
    A PDF with scrambled internal order is read scrambled.
 4. **Scanned PDFs have no text** and cannot be read. There is no OCR.
-5. **Marks sit a little off on some PDFs.** A mark is placed where the browser lays out the
-   PDF's text, which can differ from the drawn letters by a character's width when the PDF uses
-   an unusual font. Selection in every browser PDF viewer has the same limit.
+5. **Marks sit on the letters to within a fraction of a letter, not exactly.** The screen's text
+   layer is built from the glyph positions in the PDF's own drawing instructions, one piece per
+   word and per gap, so word edges follow the drawn words. Measured on the generated test PDF
+   (Chromium output, justified Georgia body text, Arial headings, two columns) against the ink
+   on the page, every word's edges were within 0.17 of the font height at 100 % zoom and 0.07
+   at 200 %. What stays open:
+   - Inside a word the letters are spread by a stand-in font, so a selection that starts or
+     ends in the middle of a word can be off by a fraction of a letter.
+   - Rotated or vertical text, a rotated page and a page whose drawing instructions cannot be
+     matched to its text keep the plain text layer, where a line is stretched evenly and a mark
+     can be off by a letter or more at the end of a long line. Not found in the test PDF, so not
+     measured.
+   - Only one PDF was measured. Other producers (LaTeX, Word, scans with OCR text) were not.
 6. **A mark cannot span two pages.** The selection is cut at the page end.
 7. **A saved PDF is a one-way export.** Opening it here shows its annotations but does not turn
    them back into editable marks. Keep working in the original.
@@ -82,6 +110,9 @@ These are the honest gaps, in rough order of how much they hurt.
 12. **Saved PDFs were not opened in Adobe Acrobat or Edge.** The marks are standard annotations
     that carry their own drawing instructions, so they should look the same there, but neither
     program was used to confirm it.
+13. **The place in a document is remembered by the file's full path.** A moved or renamed PDF
+    starts again at the top, and so does one that is replaced by a different file under the same
+    name, with whatever place and sentence number the old one had.
 
 ## Backlog
 
@@ -97,13 +128,12 @@ Each item is written so it can be handed to `/spec` as is.
 4. **Change or recolour an existing mark** from its card in the sidebar.
 5. **Stop at the reference list**, as an option. Done when reading ends at "References" or
    "Literatur".
-6. **Remember the view and the page per document**, so a file reopens where it was left.
-7. **Warm the speech model on start** so the first sentence starts within a second.
-8. **Import annotations from a PDF** as editable marks, which closes the loop with "Save PDF".
-9. **Download models from the Voices dialog.**
-10. **Better voices on the GPU.** Chatterbox Multilingual needs a 64-bit Python, which is now
-    installed, and a helper process next to the app.
-11. **Package as an installer** with electron-builder.
+6. **Warm the speech model on start** so the first sentence starts within a second.
+7. **Import annotations from a PDF** as editable marks, which closes the loop with "Save PDF".
+8. **Download models from the Voices dialog.**
+9. **Better voices on the GPU.** Chatterbox Multilingual needs a 64-bit Python, which is now
+   installed, and a helper process next to the app.
+10. **Package as an installer** with electron-builder.
 
 ## How to judge speech quality
 

@@ -97,6 +97,15 @@ main {
   min-height: 0;
 }
 
+/*
+ * PDF.js sizes a page as width plus its transparent border and relies on the default
+ * content-box. Under border-box above the border eats into the page, the canvas is squeezed
+ * by 18px while the text layer keeps its width, and every highlight drifts from its letters.
+ */
+.pdfViewer .page {
+  box-sizing: content-box;
+}
+
 /* PDF.js requires an absolutely positioned scroll container. */
 #viewer-container {
   position: relative;

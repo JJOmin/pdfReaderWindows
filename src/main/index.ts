@@ -1,10 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
-import { existsSync } from 'node:fs';
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from 'electron';
+import { existsSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { basename, join, normalize, sep } from 'node:path';
+import { basename, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseNotes } from '../shared/notes';
-import { normalizeSettings } from '../shared/settings';
+import {
+  normalizeProgress,
+  normalizeSettings,
+  parseProgressStore,
+  rememberProgress,
+  type ProgressStore,
+} from '../shared/settings';
 import type { NotesFile, OpenedPdf, Settings, SynthRequest } from '../shared/types';
 import { annotate, parseMarks } from './annotate';
 import { Tts } from './tts';
@@ -30,6 +36,49 @@ const tts = new Tts(modelsDir);
 
 /** The PDF the window shows. Notes are only ever written next to this file. */
 let currentPdf: string | undefined;
+/** Names the current opening, so that a late message about the previous document is ignored. */
+let currentId = 0;
+
+const progressPath = (): string => join(app.getPath('userData'), 'progress.json');
+const PROGRESS_WRITE_MS = 1000;
+let progress: ProgressStore | undefined;
+let progressDirty = false;
+let progressWrittenAt = 0;
+let progressTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function progressStore(): Promise<ProgressStore> {
+  if (!progress) {
+    try {
+      progress = parseProgressStore(JSON.parse(await readFile(progressPath(), 'utf8')));
+    } catch {
+      // No file yet, or one that is not ours: nothing is remembered.
+      progress = parseProgressStore(null);
+    }
+  }
+  return progress;
+}
+
+/** Writes the progress file now. Used on close, when there is no time to wait. */
+function writeProgress(): void {
+  clearTimeout(progressTimer);
+  progressTimer = undefined;
+  if (!progress || !progressDirty) return;
+  progressDirty = false;
+  progressWrittenAt = Date.now();
+  try {
+    writeFileSync(progressPath(), JSON.stringify(progress));
+  } catch {
+    // Losing the place in a document is not worth interrupting the user for.
+  }
+}
+
+/** Writes soon, but never twice within a second. */
+function scheduleProgressWrite(): void {
+  progressDirty = true;
+  if (progressTimer) return;
+  const wait = Math.max(0, progressWrittenAt + PROGRESS_WRITE_MS - Date.now());
+  progressTimer = setTimeout(writeProgress, wait);
+}
 
 async function loadPdf(path: string): Promise<OpenedPdf> {
   const data = new Uint8Array(await readFile(path));
@@ -39,8 +88,16 @@ async function loadPdf(path: string): Promise<OpenedPdf> {
   } catch {
     // No notes yet, or a file that is not ours: start empty.
   }
+  const { documents } = await progressStore();
   currentPdf = path;
-  return { name: basename(path), data, notes };
+  currentId += 1;
+  return {
+    id: currentId,
+    name: basename(path),
+    data,
+    notes,
+    progress: normalizeProgress(documents[resolve(path)]),
+  };
 }
 
 function registerIpc(): void {
@@ -55,6 +112,12 @@ function registerIpc(): void {
   ipcMain.handle('pdf:initial', () => {
     const path = process.argv.slice(1).find((arg) => /\.pdf$/iu.test(arg) && existsSync(arg));
     return path ? loadPdf(path) : null;
+  });
+  ipcMain.handle('progress:save', async (_event, id: unknown, value: unknown) => {
+    const place = normalizeProgress(value);
+    if (!currentPdf || id !== currentId || !place) return;
+    rememberProgress(await progressStore(), resolve(currentPdf), place, Date.now());
+    scheduleProgressWrite();
   });
   ipcMain.handle('notes:save', async (_event, value: unknown) => {
     const notes = parseNotes(value);
@@ -102,7 +165,19 @@ function createWindow(): void {
     autoHideMenuBar: true,
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), sandbox: true },
   });
-  window.once('ready-to-show', () => window.show());
+  // The place in the document is written at most once a second, so the last change may still be waiting.
+  window.on('close', writeProgress);
+  window.once('ready-to-show', () => {
+    // The document zooms on its own. The default menu's zoom items would scale the toolbar
+    // too, by key and from the menu bar, so they are switched off.
+    const zoomRoles = ['zoomin', 'zoomout', 'resetzoom'];
+    for (const top of Menu.getApplicationMenu()?.items ?? []) {
+      for (const item of top.submenu?.items ?? []) {
+        if (item.role && zoomRoles.includes(item.role)) item.enabled = false;
+      }
+    }
+    window.show();
+  });
   // Links inside a PDF open in the system browser, never inside the app.
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/iu.test(url)) void shell.openExternal(url);
