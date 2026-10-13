@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { parseNotes } from '../shared/notes';
 import { normalizeSettings } from '../shared/settings';
 import type { NotesFile, OpenedPdf, Settings, SynthRequest } from '../shared/types';
+import { annotate, parseMarks } from './annotate';
 import { Tts } from './tts';
 
 const RENDERER_DIR = join(import.meta.dirname, '../renderer');
@@ -65,6 +66,19 @@ function registerIpc(): void {
     const path = `${currentPdf}.notes.md`;
     await writeFile(path, markdown);
     return path;
+  });
+  ipcMain.handle('pdf:export', async (event, marks: unknown, notes: unknown) => {
+    if (!currentPdf || typeof notes !== 'string') return null;
+    // Always a new file: the original PDF is never modified.
+    const { filePath } = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender)!, {
+      defaultPath: currentPdf.replace(/\.pdf$/iu, '') + '.annotated.pdf',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (!filePath) return null;
+    if (normalize(filePath) === normalize(currentPdf))
+      throw new Error('Choose a different name than the open PDF');
+    await writeFile(filePath, await annotate(await readFile(currentPdf), parseMarks(marks), notes));
+    return filePath;
   });
   ipcMain.handle('tts:voices', () => tts.voices());
   ipcMain.handle('tts:synthesize', (_event, request: SynthRequest) => tts.synthesize(request));

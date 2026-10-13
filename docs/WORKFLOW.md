@@ -62,20 +62,35 @@ Everything else still asks.
 **Built in, no install needed:** `/code-review` (finds bugs in the current diff), `/simplify`
 (cleans it up), `/security-review`, plan mode, and memory.
 
+**Graphify** (command line tool 0.9.89 on Python 3.12, registered for this project only). It
+builds a knowledge graph of the code in `graphify-out/` so Claude can ask about structure before
+opening files. What it added:
+
+- The skill in `.claude/skills/graphify/`, a pointer in `.claude/CLAUDE.md`, and a section at
+  the end of `CLAUDE.md`.
+- Two hooks in `.claude/settings.json`. Before Claude searches or reads, they remind it to ask
+  the graph first.
+- The graph itself, built from the code alone with `graphify update .`. That step is local and
+  costs nothing.
+
+Try it from a terminal:
+
+```
+graphify query "how does a spoken word get highlighted?"
+graphify explain "alignWords()"
+```
+
+Open `graphify-out/graph.html` in a browser to see the graph. Running `/graphify .` inside Claude
+Code adds the documents and concepts on top of the code. That part uses Claude and costs tokens.
+
+Judge it honestly. This repository is about thirty source files, which Claude reads faster than
+it queries a graph, and the hooks add a detour to every search. It earns its place on large
+codebases. If it gets in the way here, `graphify uninstall` removes it.
+
+Restart VS Code once: the hooks need `graphify` on the PATH, and programs started before Python
+3.12 was installed do not see it yet.
+
 ## What is not installed and why
-
-**Graphify** builds a knowledge graph of a codebase so Claude can query structure without reading
-files. Two reasons to wait. This repository is about twenty source files, which Claude reads faster
-than it could query a graph. And it does not install on this machine: the only Python here is a
-32-bit 3.15 build, and its dependencies ship no packages for that. To try it later, install
-64-bit Python 3.12 or 3.13, then:
-
-```
-pip install graphifyy
-graphify install --project
-```
-
-Then run `/graphify .` inside Claude Code. It adds its own hooks and a section in CLAUDE.md.
 
 **OmniRoute** is not a skill. It is a local gateway that sends Claude Code's requests to other
 model providers and holds your API keys for them. It does nothing for code quality, and every

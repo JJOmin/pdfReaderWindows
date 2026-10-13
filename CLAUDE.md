@@ -26,20 +26,24 @@ The e2e tests already strip it.
 - `src/shared/` Pure logic with no DOM or Node APIs. Everything hard lives here and is unit tested.
   Files import each other with the `.ts` extension so Node can run them directly.
   - `layout.ts` text runs to paragraphs and headings. `utterances.ts` paragraphs to sentences,
-    words, language and voice role. `align.ts` word timings. `notes.ts` annotations.
-- `src/main/` Electron main process: file access, settings, and `tts.ts`, which runs the speech
-  models through `sherpa-onnx-node`.
+    words, language and voice role. `align.ts` word timings. `notes.ts` marks and comments.
+    `search.ts` finding a phrase.
+- `src/main/` Electron main process: file access, settings, `tts.ts`, which runs the speech
+  models through `sherpa-onnx-node`, and `annotate.ts`, which writes marks into a PDF copy.
 - `src/preload/` The only bridge. The renderer gets the `Api` interface from `shared/types.ts`.
-- `src/renderer/` The window: `pdf.ts` (PDF.js view and text-to-screen mapping), `reader.ts`
-  (playback), `notes-panel.ts` (highlights), `voices.ts` (voice settings).
+- `src/renderer/` The window. `view.ts` defines `TextView`, the interface of both ways to show
+  the text: `pdf.ts` (the document plus the PDF.js pages) and `reading-view.ts` (plain restyled
+  text). `reader.ts` is playback, `notes-panel.ts` marks, `search.ts` search, `voices.ts` voices.
 - `models.json` The speech model catalog, read by the app and by `scripts/fetch-models.mjs`.
 
 ## The one idea to keep intact
 
 A page's **raw string** is every PDF.js text run concatenated in stream order. The text layer in
-the DOM holds exactly the same string. A `RawRange` is a span of offsets into it. Speech
-highlights, user highlights and saved annotations all use raw ranges, so one mapping
-(`Pdf.domRanges` and `Pdf.rawSpan`) serves all three. Do not introduce a second coordinate system.
+the DOM holds exactly the same string. A `RawRange` is a span of offsets into it. The spoken
+sentence and word, the user's marks, saved annotations and search matches are all raw ranges.
+Each `TextView` maps them to the screen with `domRanges` and back with `rawSpan`, so a feature
+written against raw ranges works in the PDF view and the reading view alike. Do not introduce a
+second coordinate system, and do not add a feature to one view only.
 
 ## Rules
 
@@ -53,3 +57,15 @@ highlights, user highlights and saved annotations all use raw ranges, so one map
 - Do not claim something works without running it. For speech and highlighting that means e2e.
 - Shell heredocs halve backslashes here. Edit files that contain regular expressions with the
   Edit or Write tool, not through a script.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+
+- When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and put this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.

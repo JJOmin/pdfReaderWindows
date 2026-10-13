@@ -1,23 +1,35 @@
+import { readableText } from '../../shared/layout';
 import { emptyNotes, reanchor, sortAnnotations, toMarkdown } from '../../shared/notes';
-import { HIGHLIGHT_COLORS, type Annotation, type HighlightColor, type NotesFile } from '../../shared/types';
+import {
+  HIGHLIGHT_COLORS,
+  MARK_KINDS,
+  type Annotation,
+  type ExportMark,
+  type HighlightColor,
+  type MarkKind,
+  type NotesFile,
+  type RawRange,
+} from '../../shared/types';
 import { paint } from './highlights';
 import type { Pdf } from './pdf';
+import type { Span, TextView } from './view';
 
 const SAVE_DELAY = 400;
 const $ = <T extends HTMLElement>(selector: string): T => document.querySelector<T>(selector)!;
 
-interface Span {
-  page: number;
-  start: number;
-  end: number;
-  text: string;
+export interface NotesActions {
+  readFrom(page: number, offset: number): void;
+  reveal(page: number, ranges: readonly RawRange[]): void;
+  status(message: string, error?: boolean): void;
 }
 
-/** Highlights, their comments and the document notes: editing, painting and saving. */
+/** Marks on the text, their comments and the document notes: editing, painting, saving, exporting. */
 export class NotesPanel {
   private file: NotesFile = emptyNotes();
   private name = '';
   private selected: Span | undefined;
+  /** The kind of mark the colour buttons make. Stays as chosen until changed. */
+  private kind: MarkKind = 'highlight';
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly menu = $('#selection-menu');
   private readonly list = $<HTMLOListElement>('#annotations');
@@ -25,14 +37,16 @@ export class NotesPanel {
 
   constructor(
     private readonly pdf: Pdf,
-    private readonly onReadFrom: (page: number, offset: number) => void,
-    private readonly status: (message: string, error?: boolean) => void,
+    views: readonly TextView[],
+    private readonly view: () => TextView,
+    private readonly actions: NotesActions,
   ) {
     this.notes.addEventListener('input', () => {
       this.file.notes = this.notes.value;
       this.save();
     });
-    $('#export').addEventListener('click', () => void this.export());
+    $('#export').addEventListener('click', () => void this.exportMarkdown());
+    $('#export-pdf').addEventListener('click', () => void this.exportPdf());
 
     // The menu must not take the selection it acts on.
     this.menu.addEventListener('mousedown', (event) => event.preventDefault());
@@ -40,16 +54,23 @@ export class NotesPanel {
       const button = (event.target as Element).closest('button');
       const span = this.selected;
       if (!button || !span) return;
+      if (button.dataset.kind) {
+        this.setKind(button.dataset.kind as MarkKind);
+        return;
+      }
       if (button.dataset.color) this.add(span, button.dataset.color as HighlightColor);
-      else this.onReadFrom(span.page, span.start);
+      else this.actions.readFrom(span.page, span.start);
       getSelection()?.removeAllRanges();
       this.hideMenu();
     });
+    this.setKind(this.kind);
     document.addEventListener('selectionchange', () => {
       if (getSelection()?.isCollapsed) this.hideMenu();
     });
-    pdf.container.addEventListener('mouseup', (event) => this.onMouseUp(event));
-    pdf.container.addEventListener('scroll', () => this.hideMenu());
+    for (const { container } of views) {
+      container.addEventListener('mouseup', (event) => this.onMouseUp(event));
+      container.addEventListener('scroll', () => this.hideMenu());
+    }
   }
 
   load(name: string, file: NotesFile | null): void {
@@ -59,25 +80,42 @@ export class NotesPanel {
     this.render();
   }
 
-  /** Repaints every highlight whose page is currently rendered. */
+  /** Repaints every mark whose page is on screen in the active view. */
   paint(): void {
-    for (const color of HIGHLIGHT_COLORS) {
-      const ranges = this.file.annotations
-        .filter((a) => a.color === color)
-        .flatMap((a) => {
-          const raw = this.pdf.rawOf(a.page);
-          const anchored = raw === undefined ? a : reanchor(a, raw);
-          return anchored ? this.pdf.domRanges(a.page, [[anchored.start, anchored.end]]) : [];
-        });
-      paint(`note-${color}`, ranges);
+    const view = this.view();
+    for (const kind of MARK_KINDS) {
+      for (const color of HIGHLIGHT_COLORS) {
+        const ranges = this.file.annotations
+          .filter((a) => a.kind === kind && a.color === color)
+          .flatMap((a) => {
+            const anchored = this.anchored(a);
+            return anchored ? view.domRanges(a.page, [[anchored.start, anchored.end]]) : [];
+          });
+        paint(`note-${kind}-${color}`, ranges);
+      }
+    }
+  }
+
+  /** The annotation at its current place in the page text, or undefined if its text is gone. */
+  private anchored(annotation: Annotation): Annotation | undefined {
+    const raw = this.pdf.loadedPage(annotation.page)?.raw;
+    return raw === undefined ? annotation : (reanchor(annotation, raw) ?? undefined);
+  }
+
+  private setKind(kind: MarkKind): void {
+    this.kind = kind;
+    this.menu.dataset.kind = kind;
+    for (const button of this.menu.querySelectorAll<HTMLElement>('[data-kind]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.kind === kind));
     }
   }
 
   private onMouseUp(event: MouseEvent): void {
+    const view = this.view();
     const selection = getSelection();
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
-      const span = this.pdf.rawSpan(range);
+      const span = view.rawSpan(range);
       if (!span || span.text.trim() === '') return;
       // Selections tend to pick up the spaces around them.
       const lead = span.text.length - span.text.trimStart().length;
@@ -94,13 +132,13 @@ export class NotesPanel {
       this.menu.style.top = `${Math.min(rect.bottom + 6, innerHeight - this.menu.offsetHeight - 8)}px`;
       return;
     }
-    // A plain click on a highlight selects its card in the sidebar.
+    // A plain click on a mark selects its card in the sidebar.
     const caret = document.caretPositionFromPoint(event.clientX, event.clientY);
     if (!caret || !(caret.offsetNode instanceof Text) || caret.offset >= caret.offsetNode.length) return;
     const probe = new Range();
     probe.setStart(caret.offsetNode, caret.offset);
     probe.setEnd(caret.offsetNode, caret.offset + 1);
-    const hit = this.pdf.rawSpan(probe);
+    const hit = view.rawSpan(probe);
     const annotation =
       hit &&
       this.file.annotations.find((a) => a.page === hit.page && a.start <= hit.start && hit.start < a.end);
@@ -113,9 +151,13 @@ export class NotesPanel {
   }
 
   private add(span: Span, color: HighlightColor): void {
+    const blocks = this.pdf.loadedPage(span.page)?.blocks ?? [];
     const annotation: Annotation = {
       id: crypto.randomUUID(),
       ...span,
+      // Text that layout drops, such as a page header, has no readable form.
+      quote: readableText(blocks, span.start, span.end) || span.text,
+      kind: this.kind,
       color,
       comment: '',
       created: new Date().toISOString(),
@@ -145,13 +187,14 @@ export class NotesPanel {
       const item = document.createElement('li');
       item.dataset.id = annotation.id;
       item.dataset.color = annotation.color;
+      item.dataset.kind = annotation.kind;
 
       const meta = document.createElement('div');
       meta.className = 'meta';
       const remove = document.createElement('button');
       remove.className = 'delete';
       remove.textContent = '✕';
-      remove.title = 'Delete highlight';
+      remove.title = 'Delete mark';
       remove.addEventListener('click', () => {
         this.file.annotations = this.file.annotations.filter((a) => a !== annotation);
         this.changed();
@@ -159,9 +202,11 @@ export class NotesPanel {
       meta.append(`Page ${annotation.page}`, remove);
 
       const quote = document.createElement('blockquote');
-      quote.textContent = annotation.text;
+      quote.textContent = annotation.quote;
       quote.title = 'Show in document';
-      quote.addEventListener('click', () => this.reveal(annotation));
+      quote.addEventListener('click', () =>
+        this.actions.reveal(annotation.page, [[annotation.start, annotation.end]]),
+      );
 
       const comment = document.createElement('textarea');
       comment.placeholder = 'Comment';
@@ -178,16 +223,10 @@ export class NotesPanel {
     if (items.length === 0) {
       const empty = document.createElement('li');
       empty.className = 'empty';
-      empty.textContent = 'Select text in the document to highlight it.';
+      empty.textContent = 'Select text in the document to highlight, underline or strike it through.';
       items.push(empty);
     }
     this.list.replaceChildren(...items);
-  }
-
-  private reveal(annotation: Annotation): void {
-    const [range] = this.pdf.domRanges(annotation.page, [[annotation.start, annotation.end]]);
-    if (range) range.startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    else this.pdf.showPage(annotation.page);
   }
 
   /** Writes the notes file next to the PDF, at once or after a pause in typing. */
@@ -196,14 +235,46 @@ export class NotesPanel {
     const write = (): void => {
       window.api
         .saveNotes(this.file)
-        .catch((error: unknown) => this.status(`Saving notes failed: ${String(error)}`, true));
+        .catch((error: unknown) => this.actions.status(`Saving notes failed: ${String(error)}`, true));
     };
     if (now) write();
     else this.saveTimer = setTimeout(write, SAVE_DELAY);
   }
 
-  private async export(): Promise<void> {
+  private async exportMarkdown(): Promise<void> {
     const path = await window.api.exportMarkdown(toMarkdown(this.name, this.file));
-    this.status(path ? `Exported to ${path}` : 'Open a PDF first', !path);
+    this.actions.status(path ? `Exported to ${path}` : 'Open a PDF first', !path);
+  }
+
+  /** Saves a copy of the PDF that carries the marks and comments as standard PDF annotations. */
+  private async exportPdf(): Promise<void> {
+    try {
+      const marks: ExportMark[] = [];
+      let lost = 0;
+      for (const page of new Set(this.file.annotations.map((a) => a.page))) {
+        if (page < 1 || page > this.pdf.pageCount) continue;
+        await this.pdf.pageBlocks(page);
+        const onPage = this.file.annotations.filter((a) => a.page === page).map((a) => this.anchored(a));
+        const found = onPage.filter((a) => a !== undefined);
+        lost += onPage.length - found.length;
+        const quads = await this.pdf.quads(
+          page,
+          found.map((a) => [[a.start, a.end]]),
+        );
+        found.forEach((a, i) =>
+          marks.push({ page, kind: a.kind, color: a.color, comment: a.comment, quads: quads[i]! }),
+        );
+      }
+      const path = await window.api.exportPdf(marks, this.file.notes);
+      if (!path) return;
+      const warning =
+        lost > 0 ? ` ${lost} marks were left out because their text is no longer in the PDF.` : '';
+      this.actions.status(`Saved ${path}.${warning}`, lost > 0);
+    } catch (error) {
+      this.actions.status(
+        `Saving the PDF failed: ${error instanceof Error ? error.message : String(error)}`,
+        true,
+      );
+    }
   }
 }

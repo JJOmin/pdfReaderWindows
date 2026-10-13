@@ -49,10 +49,33 @@ export interface VoiceRef {
   sid: number;
 }
 
+export const READING_FONTS = [
+  'OpenDyslexic',
+  'Lexend',
+  'Verdana',
+  'Comic Sans MS',
+  'Arial',
+  'Georgia',
+] as const;
+export const READING_THEMES = ['light', 'sepia', 'dark'] as const;
+
+/** How the reading view sets its text. */
+export interface ReadingSettings {
+  font: (typeof READING_FONTS)[number];
+  /** Font size in pixels. */
+  size: number;
+  /** Line height as a multiple of the font size. */
+  lineHeight: number;
+  /** Extra space between letters, in em. */
+  letterSpacing: number;
+  theme: (typeof READING_THEMES)[number];
+}
+
 export interface Settings {
   /** Multiplier applied on top of every voice. */
   speed: number;
   voices: Record<Lang, Record<Role, VoiceRef | null>>;
+  reading: ReadingSettings;
 }
 
 export interface VoiceOption extends VoiceRef {
@@ -79,16 +102,32 @@ export interface SynthResult {
 export const HIGHLIGHT_COLORS = ['yellow', 'green', 'blue', 'red'] as const;
 export type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
 
+export const MARK_KINDS = ['highlight', 'underline', 'strike'] as const;
+export type MarkKind = (typeof MARK_KINDS)[number];
+
 export interface Annotation {
   id: string;
   page: number;
   start: number;
   end: number;
-  /** Highlighted text, kept so the highlight can be found again if offsets shift. */
+  /** The marked slice of the page's raw string, kept so the mark can be found again if offsets shift. */
   text: string;
+  /** The same passage as readable text: lines joined, hyphenation undone. Shown to the user. */
+  quote: string;
+  kind: MarkKind;
   color: HighlightColor;
   comment: string;
   created: string;
+}
+
+/** A mark with its place on the page, ready to be written into a PDF. */
+export interface ExportMark {
+  page: number;
+  kind: MarkKind;
+  color: HighlightColor;
+  comment: string;
+  /** One quadrilateral per line of text, in PDF units: top-left, top-right, bottom-left, bottom-right. */
+  quads: number[][];
 }
 
 export interface NotesFile {
@@ -109,6 +148,8 @@ export interface Api {
   openInitial(): Promise<OpenedPdf | null>;
   saveNotes(notes: NotesFile): Promise<void>;
   exportMarkdown(markdown: string): Promise<string | null>;
+  /** Asks where to save, then writes a copy of the PDF with the marks as standard annotations. */
+  exportPdf(marks: ExportMark[], notes: string): Promise<string | null>;
   voices(): Promise<VoiceOption[]>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;

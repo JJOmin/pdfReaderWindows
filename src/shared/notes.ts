@@ -1,24 +1,45 @@
-import { HIGHLIGHT_COLORS, type Annotation, type NotesFile } from './types.ts';
+import { HIGHLIGHT_COLORS, MARK_KINDS, type Annotation, type NotesFile } from './types.ts';
 
 export const emptyNotes = (): NotesFile => ({ version: 1, notes: '', annotations: [] });
 
-/** Validates a parsed notes file. Returns null for anything that is not one. */
+/**
+ * Validates a parsed notes file and fills in fields that older files lack.
+ * Returns null for anything that is not a notes file.
+ */
 export function parseNotes(value: unknown): NotesFile | null {
   const file = value as Partial<NotesFile> | null;
   if (!file || file.version !== 1 || typeof file.notes !== 'string') return null;
   if (!Array.isArray(file.annotations)) return null;
-  const valid = file.annotations.every(
-    (a: Partial<Annotation> | null) =>
-      a &&
-      typeof a.id === 'string' &&
-      Number.isInteger(a.page) &&
-      Number.isInteger(a.start) &&
-      Number.isInteger(a.end) &&
-      typeof a.text === 'string' &&
-      HIGHLIGHT_COLORS.includes(a.color!) &&
-      typeof a.comment === 'string',
-  );
-  return valid ? (file as NotesFile) : null;
+  const annotations: Annotation[] = [];
+  for (const a of file.annotations as (Partial<Annotation> | null)[]) {
+    const kind = a?.kind ?? 'highlight';
+    if (
+      !a ||
+      typeof a.id !== 'string' ||
+      !Number.isInteger(a.page) ||
+      !Number.isInteger(a.start) ||
+      !Number.isInteger(a.end) ||
+      typeof a.text !== 'string' ||
+      !HIGHLIGHT_COLORS.includes(a.color!) ||
+      !MARK_KINDS.includes(kind) ||
+      typeof a.comment !== 'string'
+    ) {
+      return null;
+    }
+    annotations.push({
+      id: a.id,
+      page: a.page!,
+      start: a.start!,
+      end: a.end!,
+      text: a.text,
+      quote: typeof a.quote === 'string' ? a.quote : a.text,
+      kind,
+      color: a.color!,
+      comment: a.comment,
+      created: typeof a.created === 'string' ? a.created : '',
+    });
+  }
+  return { version: 1, notes: file.notes, annotations };
 }
 
 /**
@@ -34,7 +55,7 @@ export function reanchor(annotation: Annotation, pageRaw: string): Annotation | 
 export const sortAnnotations = (annotations: Annotation[]): Annotation[] =>
   [...annotations].sort((a, b) => a.page - b.page || a.start - b.start);
 
-/** Renders notes and highlights as a Markdown review document. */
+/** Renders notes and marks as a Markdown review document. */
 export function toMarkdown(title: string, file: NotesFile): string {
   const out = [`# Notes on ${title}`, ''];
   if (file.notes.trim() !== '') out.push(file.notes.trim(), '');
@@ -44,7 +65,8 @@ export function toMarkdown(title: string, file: NotesFile): string {
       page = a.page;
       out.push(`## Page ${page}`, '');
     }
-    out.push(`> ${a.text.replace(/\s+/gu, ' ').trim()}`, '');
+    const quote = a.quote.replace(/\s+/gu, ' ').trim();
+    out.push(`> ${a.kind === 'strike' ? `~~${quote}~~` : quote}`, '');
     if (a.comment.trim() !== '') out.push(a.comment.trim(), '');
   }
   return out.join('\n');

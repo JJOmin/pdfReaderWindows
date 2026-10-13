@@ -2,10 +2,18 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "extraKnownMarketplaces": {
     "ponytail": {
-      "source": { "source": "github", "repo": "DietrichGebert/ponytail", "ref": "v5.2.0" }
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail",
+        "ref": "v5.2.0"
+      }
     },
     "addy-agent-skills": {
-      "source": { "source": "github", "repo": "addyosmani/agent-skills", "ref": "0.6.12" }
+      "source": {
+        "source": "github",
+        "repo": "addyosmani/agent-skills",
+        "ref": "0.6.12"
+      }
     }
   },
   "enabledPlugins": {
@@ -39,6 +47,28 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/format.mjs\"",
             "timeout": 20,
             "statusMessage": "Formatting"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "graphify hook-guard search",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "graphify hook-guard read",
+            "timeout": 10
           }
         ]
       }

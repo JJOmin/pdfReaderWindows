@@ -7,6 +7,7 @@ const api: Api = {
   openInitial: () => ipcRenderer.invoke('pdf:initial'),
   saveNotes: (notes) => ipcRenderer.invoke('notes:save', notes),
   exportMarkdown: (markdown) => ipcRenderer.invoke('notes:export', markdown),
+  exportPdf: (marks, notes) => ipcRenderer.invoke('pdf:export', marks, notes),
   voices: () => ipcRenderer.invoke('tts:voices'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (settings) => ipcRenderer.invoke('settings:set', settings),

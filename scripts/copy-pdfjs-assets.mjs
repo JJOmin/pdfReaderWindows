@@ -1,4 +1,4 @@
-// Copies the PDF.js runtime assets (character maps, standard fonts, image decoders)
+// Copies the PDF.js runtime assets (character maps, standard fonts, image decoders, note icons)
 // into the renderer's public folder so the app works offline.
 import { cpSync, existsSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -13,4 +13,5 @@ if (existsSync(from)) {
   for (const dir of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) {
     if (existsSync(join(from, dir))) cpSync(join(from, dir), join(to, dir), { recursive: true });
   }
+  cpSync(join(from, 'web', 'images'), join(to, 'images'), { recursive: true });
 }

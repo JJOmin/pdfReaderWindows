@@ -1,7 +1,10 @@
 import {
   LANGS,
+  READING_FONTS,
+  READING_THEMES,
   ROLES,
   type Lang,
+  type ReadingSettings,
   type Role,
   type Settings,
   type VoiceOption,
@@ -11,20 +14,29 @@ import {
 export const MIN_SPEED = 0.6;
 export const MAX_SPEED = 2;
 
+/** Allowed range of each numeric reading setting: minimum, maximum, slider step. */
+export const READING_LIMITS = {
+  size: [14, 40, 1],
+  lineHeight: [1.2, 2.6, 0.1],
+  // Below zero, because some fonts, OpenDyslexic above all, are set very wide already.
+  letterSpacing: [-0.08, 0.2, 0.01],
+} as const satisfies Record<string, readonly [number, number, number]>;
+
 export const defaultSettings = (): Settings => ({
   speed: 1,
   voices: {
     en: {
-      main: { model: 'kokoro', sid: 3 },
-      quote: { model: 'kokoro', sid: 26 },
-      heading: { model: 'kokoro', sid: 16 },
+      main: { model: 'kokoro', sid: 16 },
+      quote: { model: 'kokoro', sid: 2 },
+      heading: { model: 'supertonic', sid: 9 },
     },
     de: {
-      main: { model: 'piper-thorsten', sid: 0 },
-      quote: { model: 'supertonic', sid: 5 },
+      main: { model: 'supertonic', sid: 9 },
+      quote: { model: 'supertonic', sid: 7 },
       heading: { model: 'supertonic', sid: 1 },
     },
   },
+  reading: { font: 'Verdana', size: 20, lineHeight: 1.7, letterSpacing: 0.03, theme: 'sepia' },
 });
 
 const isVoice = (v: unknown): v is VoiceRef =>
@@ -33,19 +45,26 @@ const isVoice = (v: unknown): v is VoiceRef =>
   typeof (v as VoiceRef).model === 'string' &&
   Number.isInteger((v as VoiceRef).sid);
 
+const clamp = (value: unknown, [min, max]: readonly [number, number, number], fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+
 /** Builds valid settings from anything read from disk or sent by the renderer. */
 export function normalizeSettings(value: unknown): Settings {
   const settings = defaultSettings();
   const input = (typeof value === 'object' && value !== null ? value : {}) as Partial<Settings>;
-  if (typeof input.speed === 'number' && Number.isFinite(input.speed)) {
-    settings.speed = Math.min(MAX_SPEED, Math.max(MIN_SPEED, input.speed));
-  }
+  settings.speed = clamp(input.speed, [MIN_SPEED, MAX_SPEED, 0], settings.speed);
   for (const lang of LANGS) {
     for (const role of ROLES) {
       const voice: unknown = input.voices?.[lang]?.[role];
       if (isVoice(voice)) settings.voices[lang][role] = { model: voice.model, sid: voice.sid };
       else if (voice === null && role !== 'main') settings.voices[lang][role] = null;
     }
+  }
+  const reading: Partial<ReadingSettings> = typeof input.reading === 'object' ? (input.reading ?? {}) : {};
+  if (READING_FONTS.includes(reading.font!)) settings.reading.font = reading.font!;
+  if (READING_THEMES.includes(reading.theme!)) settings.reading.theme = reading.theme!;
+  for (const key of ['size', 'lineHeight', 'letterSpacing'] as const) {
+    settings.reading[key] = clamp(reading[key], READING_LIMITS[key], settings.reading[key]);
   }
   return settings;
 }

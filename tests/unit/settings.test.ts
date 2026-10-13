@@ -25,10 +25,30 @@ describe('normalizeSettings', () => {
     expect(settings.voices.en.heading).toEqual(defaultSettings().voices.en.heading);
     expect(settings.voices.de).toEqual(defaultSettings().voices.de);
   });
+
+  it('keeps valid reading settings, clamps numbers and ignores unknown fonts and themes', () => {
+    const { reading } = normalizeSettings({
+      reading: { font: 'OpenDyslexic', size: 500, lineHeight: 2, letterSpacing: -1, theme: 'neon' },
+    });
+    expect(reading).toEqual({
+      font: 'OpenDyslexic',
+      size: 40,
+      lineHeight: 2,
+      letterSpacing: -0.08,
+      theme: defaultSettings().reading.theme,
+    });
+    expect(normalizeSettings({ reading: { font: 'Wingdings' } }).reading).toEqual(defaultSettings().reading);
+    expect(normalizeSettings({ reading: null }).reading).toEqual(defaultSettings().reading);
+  });
 });
 
 describe('resolveVoice', () => {
-  const settings = defaultSettings();
+  const settings = normalizeSettings({
+    voices: {
+      en: { main: { model: 'kokoro', sid: 3 }, quote: { model: 'kokoro', sid: 26 } },
+      de: { main: { model: 'piper-thorsten', sid: 0 }, quote: { model: 'supertonic', sid: 5 } },
+    },
+  });
 
   it('uses the voice configured for the role', () => {
     const available = [voice('kokoro', 3, ['en']), voice('kokoro', 26, ['en'])];
@@ -40,6 +60,13 @@ describe('resolveVoice', () => {
     expect(resolveVoice(settings, onlyMain, 'de', 'quote')).toEqual({ model: 'piper-thorsten', sid: 0 });
     const other = [voice('kokoro', 3, ['en']), voice('supertonic', 9, ['en', 'de'])];
     expect(resolveVoice(settings, other, 'de', 'main')).toMatchObject({ model: 'supertonic', sid: 9 });
+  });
+
+  it('does not use a voice for a language it cannot speak', () => {
+    // Kokoro only speaks English, so a German quote must not get the English quote voice.
+    const available = [voice('kokoro', 26, ['en']), voice('piper-thorsten', 0, ['de'])];
+    const german = normalizeSettings({ voices: { de: { quote: { model: 'kokoro', sid: 26 } } } });
+    expect(resolveVoice(german, available, 'de', 'quote')).toMatchObject({ model: 'piper-thorsten' });
   });
 
   it('prefers a wrong-language voice over silence and returns nothing without voices', () => {

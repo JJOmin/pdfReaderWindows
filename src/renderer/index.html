@@ -22,12 +22,26 @@
       </div>
 
       <div class="group" role="group" aria-label="View">
-        <button id="zoom-out" title="Zoom out (Ctrl+-)" aria-label="Zoom out">−</button>
-        <button id="zoom-in" title="Zoom in (Ctrl++)" aria-label="Zoom in">+</button>
+        <button id="zoom-out" title="Smaller (Ctrl+-)" aria-label="Smaller">−</button>
+        <button id="zoom-in" title="Larger (Ctrl++)" aria-label="Larger">+</button>
         <span id="page-info"></span>
       </div>
 
+      <div class="group" role="search">
+        <input id="search" type="search" placeholder="Search (Ctrl+F)" aria-label="Search the document" />
+        <button id="search-prev" title="Previous match (Shift+Enter)" aria-label="Previous match">↑</button>
+        <button id="search-next" title="Next match (Enter)" aria-label="Next match">↓</button>
+        <span id="search-count" role="status"></span>
+      </div>
+
       <span class="spacer"></span>
+      <button
+        id="toggle-reading"
+        aria-pressed="false"
+        title="Show the text alone, in a font and size you choose"
+      >
+        Reading view
+      </button>
       <button id="open-voices">Voices</button>
       <button id="toggle-sidebar" aria-pressed="true">Notes</button>
     </header>
@@ -36,22 +50,55 @@
       <div id="viewer-container">
         <div id="scroller"><div id="pages" class="pdfViewer"></div></div>
       </div>
+
+      <div id="reading" hidden>
+        <div id="reading-controls">
+          <label
+            >Font
+            <select id="reading-font"></select
+          ></label>
+          <label>Size <input id="reading-size" type="range" /></label>
+          <label>Line spacing <input id="reading-lineHeight" type="range" /></label>
+          <label>Letter spacing <input id="reading-letterSpacing" type="range" /></label>
+          <label
+            >Colours
+            <select id="reading-theme"></select
+          ></label>
+        </div>
+        <article id="reading-text"></article>
+      </div>
+
       <aside id="sidebar">
         <h2>Notes</h2>
         <textarea id="notes" placeholder="General notes on this document"></textarea>
         <div class="row">
-          <h2>Highlights</h2>
-          <button id="export" title="Save notes and highlights as Markdown next to the PDF">Export</button>
+          <h2>Marks</h2>
+          <span class="group">
+            <button id="export" title="Save notes and marks as Markdown next to the PDF">Markdown</button>
+            <button
+              id="export-pdf"
+              title="Save a copy of the PDF with your marks and comments, readable in any PDF program"
+            >
+              Save PDF
+            </button>
+          </span>
         </div>
         <ol id="annotations"></ol>
       </aside>
     </main>
 
     <div id="selection-menu" hidden>
-      <button data-color="yellow" aria-label="Highlight yellow"></button>
-      <button data-color="green" aria-label="Highlight green"></button>
-      <button data-color="blue" aria-label="Highlight blue"></button>
-      <button data-color="red" aria-label="Highlight red"></button>
+      <span class="group" role="group" aria-label="Kind of mark">
+        <button data-kind="highlight" title="Highlight" aria-label="Highlight"><span>A</span></button>
+        <button data-kind="underline" title="Underline" aria-label="Underline"><span>A</span></button>
+        <button data-kind="strike" title="Strike through" aria-label="Strike through"><span>A</span></button>
+      </span>
+      <span class="group" role="group" aria-label="Colour">
+        <button data-color="yellow" aria-label="Yellow"></button>
+        <button data-color="green" aria-label="Green"></button>
+        <button data-color="blue" aria-label="Blue"></button>
+        <button data-color="red" aria-label="Red"></button>
+      </span>
       <button id="read-from-here">▶ Read from here</button>
     </div>
 

@@ -8,6 +8,8 @@ const annotation = (over: Partial<Annotation> = {}): Annotation => ({
   start: 4,
   end: 9,
   text: 'quick',
+  quote: 'quick',
+  kind: 'highlight',
   color: 'yellow',
   comment: '',
   created: '2026-10-13T00:00:00.000Z',
@@ -16,14 +18,22 @@ const annotation = (over: Partial<Annotation> = {}): Annotation => ({
 
 describe('parseNotes', () => {
   it('accepts a valid file and rejects malformed ones', () => {
-    const file: NotesFile = { version: 1, notes: 'n', annotations: [annotation()] };
+    const file: NotesFile = { version: 1, notes: 'n', annotations: [annotation({ kind: 'underline' })] };
     expect(parseNotes(JSON.parse(JSON.stringify(file)))).toEqual(file);
     expect(parseNotes(null)).toBeNull();
     expect(parseNotes({ version: 2, notes: '', annotations: [] })).toBeNull();
     expect(parseNotes({ version: 1, notes: '', annotations: [{ id: 1 }] })).toBeNull();
-    expect(
-      parseNotes({ version: 1, notes: '', annotations: [annotation({ color: 'pink' as never })] }),
-    ).toBeNull();
+    for (const bad of [{ color: 'pink' }, { kind: 'circle' }]) {
+      expect(parseNotes({ version: 1, notes: '', annotations: [{ ...annotation(), ...bad }] })).toBeNull();
+    }
+  });
+
+  it('reads files written before marks had a kind and a readable quote', () => {
+    const old = { id: 'a1', page: 2, start: 4, end: 9, text: 'qu-ick', color: 'green', comment: 'c' };
+    expect(parseNotes({ version: 1, notes: '', annotations: [old] })?.annotations[0]).toMatchObject({
+      kind: 'highlight',
+      quote: 'qu-ick',
+    });
   });
 });
 
@@ -36,13 +46,14 @@ describe('reanchor', () => {
 });
 
 describe('toMarkdown', () => {
-  it('groups highlights by page in reading order', () => {
+  it('groups marks by page in reading order and shows the readable quote', () => {
     const markdown = toMarkdown('paper.pdf', {
       version: 1,
       notes: 'Overall solid.',
       annotations: [
-        annotation({ id: 'b', page: 3, text: 'later  claim', comment: 'Check this.' }),
-        annotation({ id: 'a', page: 1, text: 'first claim' }),
+        annotation({ id: 'b', page: 3, text: 'la-terclaim', quote: 'later  claim', comment: 'Check this.' }),
+        annotation({ id: 'c', page: 3, start: 50, quote: 'wrong', kind: 'strike' }),
+        annotation({ id: 'a', page: 1, quote: 'first claim' }),
       ],
     });
     expect(markdown).toBe(
@@ -60,6 +71,8 @@ describe('toMarkdown', () => {
         '> later claim',
         '',
         'Check this.',
+        '',
+        '> ~~wrong~~',
         '',
       ].join('\n'),
     );

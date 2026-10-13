@@ -24,10 +24,15 @@ Open a file with the Open button, or pass it on the command line with two double
 ## Use
 
 - **Space** starts and pauses reading. The arrows in the toolbar skip by sentence.
-- **Select text** to highlight it in a colour, or to start reading from that point.
+- **Select text** to highlight, underline or strike it through in a colour, or to start reading
+  from that point.
+- **Ctrl+F** searches the document. Enter and Shift+Enter step through the matches.
+- **Reading view** shows the text alone in a font, size, spacing and colour scheme you choose,
+  including OpenDyslexic. Reading aloud, marks and search work there too.
 - **Voices** sets a voice for main text, quotes and headings in each language.
 - **Notes** holds your comments. They are saved next to the PDF as `paper.pdf.notes.json`.
-  **Export** writes `paper.pdf.notes.md`.
+  **Markdown** writes `paper.pdf.notes.md`. **Save PDF** writes a copy of the PDF that carries
+  your marks and comments, for people who use another PDF program.
 
 ## Develop
 

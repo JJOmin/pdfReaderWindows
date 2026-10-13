@@ -159,3 +159,25 @@ export function rawRanges(raw: readonly number[], start: number, end: number): R
   }
   return ranges;
 }
+
+/** A stretch of one block's readable text. */
+export interface BlockSpan {
+  block: number;
+  from: number;
+  to: number;
+}
+
+/** The inverse of `rawRanges`: where the page's raw range `[start, end)` shows up in the blocks' text. */
+export function blockSpans(blocks: readonly Block[], start: number, end: number): BlockSpan[] {
+  const inside = (at: number): boolean => at >= start && at < end;
+  return blocks.flatMap((block, index) => {
+    const from = block.raw.findIndex(inside);
+    return from < 0 ? [] : [{ block: index, from, to: block.raw.findLastIndex(inside) + 1 }];
+  });
+}
+
+/** The readable text behind a raw range: lines joined and hyphenation undone. */
+export const readableText = (blocks: readonly Block[], start: number, end: number): string =>
+  blockSpans(blocks, start, end)
+    .map((span) => blocks[span.block]!.text.slice(span.from, span.to))
+    .join(' ');
