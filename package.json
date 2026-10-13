@@ -13,6 +13,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "models": "node scripts/fetch-models.mjs",
+    "gpu-voice": "node scripts/setup-gpu-voice.mjs",
     "fixtures": "electron scripts/make-fixtures.mjs",
     "dump": "node scripts/dump-text.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",

@@ -15,6 +15,7 @@ How we work is in [docs/WORKFLOW.md](docs/WORKFLOW.md). What is built and what i
 | `npm run dump -- file.pdf [n]` | Prints what the reader would speak. The tool for text detection. |
 | `npm run dev`                  | Starts the app with hot reload.                                  |
 | `npm run models`               | Downloads the recommended speech models into `models/`.          |
+| `npm run gpu-voice`            | Sets up the optional XTTS-v2 GPU voice (Python env, 7 GB).       |
 | `npm run fixtures`             | Regenerates `tests/fixtures/sample.pdf`.                         |
 
 Inside VS Code's Claude extension `ELECTRON_RUN_AS_NODE=1` is set, which makes Electron start as
@@ -27,9 +28,12 @@ The e2e tests already strip it.
   Files import each other with the `.ts` extension so Node can run them directly.
   - `layout.ts` text runs to paragraphs and headings. `utterances.ts` paragraphs to sentences,
     words, language and voice role. `align.ts` word timings. `notes.ts` marks and comments.
-    `search.ts` finding a phrase.
+    `search.ts` finding a phrase. `render-cache.ts` and `prerender.ts` the GPU voice's cache key
+    and the pre-render job, `requests.ts` checking a speech request from the renderer.
 - `src/main/` Electron main process: file access, settings, `tts.ts`, which runs the speech
   models through `sherpa-onnx-node`, and `annotate.ts`, which writes marks into a PDF copy.
+  `xtts.ts` drives the GPU voice: a Python helper (`helper/xtts_helper.py`, JSON lines over
+  stdin and stdout) that renders sentences into a cache folder. ADR 5 has the reasons.
 - `src/preload/` The only bridge. The renderer gets the `Api` interface from `shared/types.ts`.
 - `src/renderer/` The window. `view.ts` defines `TextView`, the interface of both ways to show
   the text: `pdf.ts` (the document plus the PDF.js pages) and `reading-view.ts` (plain restyled

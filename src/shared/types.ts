@@ -173,4 +173,9 @@ export interface Api {
   /** Remembers where the user is in the document that opening `id` gave. Stale ids are ignored. */
   saveProgress(id: number, progress: Progress): Promise<void>;
   synthesize(request: SynthRequest): Promise<SynthResult>;
+  /**
+   * Renders a sentence with a GPU voice into the cache without returning the audio, so that
+   * `synthesize` finds it later. Runs behind any sentence somebody is waiting for.
+   */
+  prerender(request: SynthRequest): Promise<void>;
 }

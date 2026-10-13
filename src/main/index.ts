@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseNotes } from '../shared/notes';
+import { parseSynthRequest } from '../shared/requests';
 import {
   normalizeProgress,
   normalizeSettings,
@@ -32,7 +33,10 @@ const settingsPath = (): string => join(app.getPath('userData'), 'settings.json'
 const modelsDir =
   process.env.PDFREADER_MODELS ??
   (app.isPackaged ? join(app.getPath('userData'), 'models') : join(app.getAppPath(), 'models'));
-const tts = new Tts(modelsDir);
+const tts = new Tts(modelsDir, {
+  cacheDir: join(app.getPath('userData'), 'voice-cache'),
+  helperScript: join(app.getAppPath(), 'helper', 'xtts_helper.py'),
+});
 
 /** The PDF the window shows. Notes are only ever written next to this file. */
 let currentPdf: string | undefined;
@@ -144,7 +148,14 @@ function registerIpc(): void {
     return filePath;
   });
   ipcMain.handle('tts:voices', () => tts.voices());
-  ipcMain.handle('tts:synthesize', (_event, request: SynthRequest) => tts.synthesize(request));
+  // Whatever the renderer sends is checked here: it is a sandboxed page, not trusted code.
+  const request = (value: unknown): SynthRequest => {
+    const parsed = parseSynthRequest(value);
+    if (!parsed) throw new Error('Invalid speech request');
+    return parsed;
+  };
+  ipcMain.handle('tts:synthesize', (_event, value: unknown) => tts.synthesize(request(value)));
+  ipcMain.handle('tts:prerender', (_event, value: unknown) => tts.prerender(request(value)));
   ipcMain.handle('settings:get', async (): Promise<Settings> => {
     try {
       return normalizeSettings(JSON.parse(await readFile(settingsPath(), 'utf8')));
@@ -206,3 +217,5 @@ void app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+// The GPU voice's helper holds GPU memory until it is told to go.
+app.on('will-quit', () => tts.close());

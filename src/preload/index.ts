@@ -13,6 +13,7 @@ const api: Api = {
   setSettings: (settings) => ipcRenderer.invoke('settings:set', settings),
   saveProgress: (id, progress) => ipcRenderer.invoke('progress:save', id, progress),
   synthesize: (request) => ipcRenderer.invoke('tts:synthesize', request),
+  prerender: (request) => ipcRenderer.invoke('tts:prerender', request),
 };
 
 contextBridge.exposeInMainWorld('api', api);

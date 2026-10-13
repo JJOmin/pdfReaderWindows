@@ -21,6 +21,20 @@ Thorsten for German, Supertonic 3 for both, and the recogniser that times the wo
 Open a file with the Open button, or pass it on the command line with two double dashes:
 `npm run dev -- -- paper.pdf`.
 
+### GPU voice (optional)
+
+XTTS-v2 is a larger voice that runs on an NVIDIA GPU. It needs a 64-bit Python 3.12 (`py -3.12`),
+about 3 GB of free GPU memory and about 7 GB of downloads. Its licence allows non-commercial use
+only, so setup asks you to agree:
+
+```
+npm run gpu-voice -- --accept-licence
+```
+
+After a restart it is listed under **Voices** as "XTTS-v2 · Claribel Dervla (GPU)" for both
+languages. **Pre-render** in the toolbar renders the open document with it in the background,
+while you keep reading with any other voice. Rendered sentences are kept between sessions.
+
 ## Use
 
 - **Space** starts and pauses reading. The arrows in the toolbar skip by sentence.

@@ -52,8 +52,26 @@ headings and paragraphs, hyphenation undone, no headers, footers or page numbers
   English voice, also when it follows a colon inside a German sentence.
 - Three voice roles per language: main text, quotes and headings. Set them under Voices, with a
   preview button for each.
-- Four engines: Kokoro (English), Piper Thorsten (German), Supertonic 3 (both), Pocket TTS
-  (English, optional download).
+- Four CPU engines: Kokoro (English), Piper Thorsten (German), Supertonic 3 (both), Pocket TTS
+  (English, optional download). One GPU engine: XTTS-v2 (both, optional, see below).
+
+**GPU voice (XTTS-v2).** Optional, for Windows with an NVIDIA GPU. `npm run gpu-voice --
+--accept-licence` creates a Python environment and downloads the weights (about 7 GB). After a
+restart, "XTTS-v2 · Claribel Dervla (GPU)" is offered under Voices for both languages, and the
+**Pre-render** button appears in the toolbar. Chosen by listening, ADR 5.
+
+- A sentence is rendered by a helper process (`helper/xtts_helper.py`) into a cache of 16-bit WAV
+  files in the app's data folder, keyed by text, voice, language and speed. The cache is kept
+  between sessions and trimmed to 2 GiB, least recently used first.
+- **Pre-render** renders the whole open document with XTTS in the background, from the page in
+  view to the end and then the pages before it. It does not depend on the voice chosen for
+  reading: read with any other voice meanwhile, and choose XTTS under Voices when it is done. Click
+  again to stop; what is done stays. It renders at the speed set when it was started.
+- Without pre-rendering, XTTS still reads: a sentence not in the cache is rendered when it is
+  needed. A sentence somebody is waiting for goes before one being pre-rendered.
+- The first XTTS sentence takes the model's load time (about 20 seconds here), then about 4
+  seconds per sentence if not rendered ahead. The helper stops after ten minutes without a
+  request and gives the GPU memory back.
 
 **Text detection.** Headings, paragraphs across two columns, hyphenation undone at line ends,
 running headers, footers, page numbers and margin stamps dropped, numeric citations such as
@@ -113,6 +131,14 @@ These are the honest gaps, in rough order of how much they hurt.
 13. **The place in a document is remembered by the file's full path.** A moved or renamed PDF
     starts again at the top, and so does one that is replaced by a different file under the same
     name, with whatever place and sentence number the old one had.
+14. **The GPU voice has limits.**
+    - It is set up and tested on Windows with Python 3.12 and an RTX 2070 only.
+    - Its Python environment is 5 GB, and the model is licensed for non-commercial use only.
+    - It has one speaker. The model has dozens, chosen from by listening.
+    - Rendered sentences are tied to the speed they were rendered at. Changing the speed
+      slider re-renders on demand, at about half real time.
+    - How it reads numbers, abbreviations and formulas was not checked.
+    - The helper script is found next to the app's files; a packaged installer does not carry it.
 
 ## Backlog
 
@@ -131,11 +157,14 @@ Each item is written so it can be handed to `/spec` as is.
 6. **Warm the speech model on start** so the first sentence starts within a second.
 7. **Import annotations from a PDF** as editable marks, which closes the loop with "Save PDF".
 8. **Download models from the Voices dialog.**
-9. **Better voices on the GPU.** Chatterbox Multilingual needs a 64-bit Python, which is now
-   installed, and a helper process next to the app.
-10. **Package as an installer** with electron-builder.
+9. **More GPU voices.** XTTS-v2 is done (ADR 5). Open: other speakers of the same model, a
+   second model (Chatterbox and Fun-CosyVoice3 ran slower than real time, so they would need the
+   pre-render and a wait), and a time-stretch so that changing the speed does not re-render.
+10. **Package as an installer** with electron-builder. The GPU voice's helper and environment
+    would stay an optional download.
 
 ## How to judge speech quality
 
 Listening is the only test. Five samples of the same sentence are in
-[docs/samples/](samples/). Use the preview buttons under Voices for the rest.
+[docs/samples/](samples/), and eight GPU ones in [docs/samples/gpu/](samples/gpu/). Use the
+preview buttons under Voices for the rest.

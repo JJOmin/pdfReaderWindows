@@ -4,7 +4,9 @@ import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import catalog from '../../models.json';
 import { alignWords, estimateTimings } from '../shared/align';
+import { isRenderedVoice, XTTS_MODEL } from '../shared/render-cache';
 import type { Lang, SynthRequest, SynthResult, VoiceOption } from '../shared/types';
+import { Xtts } from './xtts';
 
 // sherpa-onnx-node is a CommonJS native addon without type declarations.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,6 +19,16 @@ interface Wave {
 }
 
 const THREADS = Math.max(2, Math.min(8, Math.floor(availableParallelism() / 2)));
+
+/** Speakers by `sid`. The model has dozens; this one was chosen by listening, ADR 5. */
+const XTTS_SPEAKERS: Record<number, string> = { 0: 'Claribel Dervla' };
+
+export interface GpuVoiceOptions {
+  /** Where rendered sentences are kept between sessions. */
+  cacheDir: string;
+  /** The helper program, helper/xtts_helper.py. */
+  helperScript: string;
+}
 
 /** The sherpa-onnx model section for one catalog entry. */
 function engineConfig(model: Model, dir: string): Record<string, unknown> {
@@ -76,8 +88,14 @@ export class Tts {
   private references = new Map<string, Wave>();
   /** Requests run one at a time: each engine already uses every core it is given. */
   private queue: Promise<unknown> = Promise.resolve();
+  /** Alignment calls run one at a time too: the CPU voices and the GPU voice both end here. */
+  private alignment: Promise<unknown> = Promise.resolve();
+  private gpuVoice: Xtts | undefined;
 
-  constructor(private readonly modelsDir: string) {}
+  constructor(
+    private readonly modelsDir: string,
+    private readonly gpu?: GpuVoiceOptions,
+  ) {}
 
   private dir(model: Model): string {
     return join(this.modelsDir, model.dir);
@@ -88,8 +106,38 @@ export class Tts {
     return model && existsSync(this.dir(model)) ? model : undefined;
   }
 
+  private xttsPaths(): { python: string; model: string } {
+    const env = join(this.modelsDir, 'xtts-env');
+    return {
+      python: join(env, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'),
+      model: join(this.modelsDir, 'xtts-v2'),
+    };
+  }
+
+  private xttsInstalled(): boolean {
+    if (!this.gpu) return false;
+    const { python, model } = this.xttsPaths();
+    return existsSync(python) && existsSync(join(model, 'model.pth'));
+  }
+
+  private xtts(): Xtts {
+    if (!this.gpu || !this.xttsInstalled()) {
+      throw new Error('The XTTS-v2 voice is not installed. Run: npm run gpu-voice');
+    }
+    const { python, model } = this.xttsPaths();
+    this.gpuVoice ??= new Xtts({
+      command: python,
+      // -I: ignore PYTHON* variables and the working directory, so only the environment's own
+      // packages are imported.
+      args: ['-I', '-X', 'utf8', this.gpu.helperScript, model],
+      cacheDir: this.gpu.cacheDir,
+      speakers: XTTS_SPEAKERS,
+    });
+    return this.gpuVoice;
+  }
+
   voices(): VoiceOption[] {
-    return catalog
+    const cpu = catalog
       .filter((m) => m.engine !== 'aligner' && this.installed(m.id))
       .flatMap((m) =>
         Object.entries(m.speakers).map(([sid, name]) => ({
@@ -99,12 +147,40 @@ export class Tts {
           langs: m.langs as Lang[],
         })),
       );
+    const gpu: VoiceOption[] = this.xttsInstalled()
+      ? Object.entries(XTTS_SPEAKERS).map(([sid, name]) => ({
+          model: XTTS_MODEL,
+          sid: Number(sid),
+          label: `XTTS-v2 · ${name} (GPU)`,
+          langs: ['en', 'de'],
+        }))
+      : [];
+    return [...cpu, ...gpu];
   }
 
   synthesize(request: SynthRequest): Promise<SynthResult> {
+    // The GPU voice has a queue of its own, so that it never waits for a CPU voice, or the reverse.
+    if (isRenderedVoice(request.voice)) return this.speakXtts(request);
     const result = this.queue.then(() => this.run(request));
     this.queue = result.catch(() => undefined);
     return result;
+  }
+
+  /** Renders a sentence with the GPU voice into the cache without returning it. Yields to live requests. */
+  async prerender(request: SynthRequest): Promise<void> {
+    if (!isRenderedVoice(request.voice)) throw new Error(`"${request.voice.model}" is not a rendered voice`);
+    await this.xtts().render(request, 'background');
+  }
+
+  /** Stops the GPU voice's helper process, which frees its memory. */
+  close(): void {
+    this.gpuVoice?.close();
+  }
+
+  private async speakXtts(request: SynthRequest): Promise<SynthResult> {
+    const path = await this.xtts().render(request, 'live');
+    // false: Electron forbids ArrayBuffers that point at memory outside the V8 heap.
+    return this.align(sherpa.readWave(path, false) as Wave, request.words);
   }
 
   private async run({ text, words, lang, voice, speed }: SynthRequest): Promise<SynthResult> {
@@ -146,8 +222,17 @@ export class Tts {
       enableExternalBuffer: false,
       generationConfig: new sherpa.GenerationConfig(generation),
     });
-    const duration = audio.samples.length / audio.sampleRate;
+    return this.align(audio, words);
+  }
 
+  private align(audio: Wave, words: string[]): Promise<SynthResult> {
+    const result = this.alignment.then(() => this.timings(audio, words));
+    this.alignment = result.catch(() => undefined);
+    return result;
+  }
+
+  private async timings(audio: Wave, words: string[]): Promise<SynthResult> {
+    const duration = audio.samples.length / audio.sampleRate;
     const aligner = await this.loadAligner();
     if (!aligner) {
       return { ...audio, timings: estimateTimings(words, duration), aligned: false };
