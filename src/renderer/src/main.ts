@@ -383,6 +383,15 @@ const voiceSettingsChanged = (): void => {
 };
 speed.addEventListener('change', voiceSettingsChanged);
 
+const polish = $<HTMLInputElement>('#polish');
+polish.checked = settings.polish;
+reader.polish = settings.polish;
+polish.addEventListener('change', () => {
+  settings.polish = polish.checked;
+  reader.polish = settings.polish;
+  saveSettings();
+});
+
 const prerenderButton = $<HTMLButtonElement>('#prerender');
 /** Set while a pre-render runs; aborting it stops after the sentence in progress. */
 let prerendering: AbortController | undefined;

@@ -45,6 +45,7 @@ export const defaultSettings = (): Settings => ({
   },
   reading: { font: 'Verdana', size: 20, lineHeight: 1.7, letterSpacing: 0.03, theme: 'sepia' },
   focusMode: false,
+  polish: false,
 });
 
 const isVoice = (v: unknown): v is VoiceRef =>
@@ -75,6 +76,7 @@ export function normalizeSettings(value: unknown): Settings {
     settings.reading[key] = clamp(reading[key], READING_LIMITS[key], settings.reading[key]);
   }
   if (typeof input.focusMode === 'boolean') settings.focusMode = input.focusMode;
+  if (typeof input.polish === 'boolean') settings.polish = input.polish;
   return settings;
 }
 

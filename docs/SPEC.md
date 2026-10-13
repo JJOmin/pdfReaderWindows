@@ -45,6 +45,12 @@ headings and paragraphs, hyphenation undone, no headers, footers or page numbers
   A sentence taller than 60 % of the view cannot be centred as a whole, so the line of the word
   being spoken is kept in the middle instead, word by word. Works in both views. A sentence at
   the very top or bottom of the document cannot reach the middle, as there is nothing to scroll.
+- **Soften sentence edges** (checkbox under Voices, off by default, remembered). At playback each
+  sentence fades in and out over 8 ms and passes a 70 Hz high-pass, which hides clicks at the
+  joins and a hard stop. It changes no sample count, so word timings and marks are untouched, and
+  it applies to every voice. A change takes effect from the next sentence. It is not a denoiser:
+  on clean synthetic speech a voice-chat denoiser has nothing to remove and can strip sibilants.
+  Whether the fades are audible is not yet measured.
 - Word timings are measured, not estimated: a small speech recogniser listens to each synthesised
   sentence and reports when each word starts. Without the recogniser model the app falls back to
   an estimate by word length.

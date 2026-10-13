@@ -271,6 +271,16 @@ dialog p {
   margin-bottom: 16px;
 }
 
+#polish-row {
+  display: block;
+  margin-bottom: 4px;
+}
+
+#polish-hint {
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+
 #voice-rows h3 {
   grid-column: 1 / -1;
   margin: 8px 0 0;

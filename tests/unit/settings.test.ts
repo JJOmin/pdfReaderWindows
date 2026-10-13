@@ -50,6 +50,15 @@ describe('normalizeSettings', () => {
   });
 });
 
+describe('polish', () => {
+  it('is off by default and keeps only a real boolean', () => {
+    expect(defaultSettings().polish).toBe(false);
+    expect(normalizeSettings({ polish: true }).polish).toBe(true);
+    expect(normalizeSettings({ polish: 'yes' }).polish).toBe(false);
+    expect(normalizeSettings({}).polish).toBe(false);
+  });
+});
+
 describe('focus mode', () => {
   it('is off by default and keeps only a real boolean', () => {
     expect(defaultSettings().focusMode).toBe(false);

@@ -78,6 +78,8 @@ export interface Settings {
   reading: ReadingSettings;
   /** While reading aloud, keep the spoken sentence in the middle of the view. */
   focusMode: boolean;
+  /** Fade each sentence in and out and cut rumble below the voice, when it is played. */
+  polish: boolean;
 }
 
 export interface VoiceOption extends VoiceRef {

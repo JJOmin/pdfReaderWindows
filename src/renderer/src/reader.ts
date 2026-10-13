@@ -1,3 +1,4 @@
+import { fadeEnvelope, POLISH_FADE, POLISH_HIGHPASS_HZ, POLISH_HIGHPASS_Q_DB } from '../../shared/polish';
 import type { SynthResult, Utterance } from '../../shared/types';
 
 export type ReaderState = 'idle' | 'playing' | 'paused';
@@ -24,11 +25,18 @@ const HEADING_GAP = 0.35;
 /** Reads the document aloud sentence by sentence and reports which word is being spoken. */
 export class Reader {
   state: ReaderState = 'idle';
+  /**
+   * Fades each sentence in and out and high-passes it. Applied when a sentence starts playing, so
+   * a change takes effect on the next sentence and the prepared audio stays valid.
+   */
+  polish = false;
   private readonly audio = new AudioContext();
   private cursor: Cursor | undefined;
   /** Bumped whenever playback is redirected, so a superseded loop notices and exits. */
   private run = 0;
   private source: AudioBufferSourceNode | undefined;
+  /** The fade of the playing sentence, when polish is on. */
+  private gain: GainNode | undefined;
   private finish: (() => void) | undefined;
   private cache = new Map<string, Promise<SynthResult>>();
 
@@ -89,8 +97,16 @@ export class Reader {
     this.run++;
     if (this.source) {
       this.source.onended = null;
-      this.source.stop();
+      if (this.gain) {
+        // A cut in the middle of a waveform clicks: fade out first.
+        const now = this.audio.currentTime;
+        this.gain.gain.cancelScheduledValues(now);
+        this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+        this.gain.gain.linearRampToValueAtTime(0, now + POLISH_FADE);
+        this.source.stop(now + POLISH_FADE);
+      } else this.source.stop();
       this.source = undefined;
+      this.gain = undefined;
     }
     this.finish?.();
     this.finish = undefined;
@@ -165,8 +181,24 @@ export class Reader {
       buffer.copyToChannel(new Float32Array(result.samples), 0);
       const source = this.audio.createBufferSource();
       source.buffer = buffer;
-      source.connect(this.audio.destination);
       const startAt = this.audio.currentTime + gap;
+      this.gain = undefined;
+      if (this.polish) {
+        const highpass = this.audio.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = POLISH_HIGHPASS_HZ;
+        highpass.Q.value = POLISH_HIGHPASS_Q_DB;
+        const gain = this.audio.createGain();
+        const { fadeInEnd, fadeOutStart } = fadeEnvelope(buffer.duration);
+        gain.gain.setValueAtTime(0, startAt);
+        gain.gain.linearRampToValueAtTime(1, startAt + fadeInEnd);
+        gain.gain.setValueAtTime(1, startAt + fadeOutStart);
+        gain.gain.linearRampToValueAtTime(0, startAt + buffer.duration);
+        source.connect(highpass).connect(gain).connect(this.audio.destination);
+        this.gain = gain;
+      } else {
+        source.connect(this.audio.destination);
+      }
       let word = -1;
       const tick = (): void => {
         if (this.source !== source) return;
@@ -178,7 +210,10 @@ export class Reader {
         requestAnimationFrame(tick);
       };
       source.onended = (): void => {
-        if (this.source === source) this.source = undefined;
+        if (this.source === source) {
+          this.source = undefined;
+          this.gain = undefined;
+        }
         resolve();
       };
       this.source = source;
