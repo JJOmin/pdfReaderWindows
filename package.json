@@ -1,0 +1,45 @@
+{
+  "name": "pdfreader",
+  "version": "0.1.0",
+  "description": "Local PDF reader with annotations and read-aloud that highlights the spoken sentence and word",
+  "private": true,
+  "type": "module",
+  "main": "out/main/index.js",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "models": "node scripts/fetch-models.mjs",
+    "fixtures": "electron scripts/make-fixtures.mjs",
+    "dump": "node scripts/dump-text.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "electron-vite build && playwright test",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "postinstall": "node scripts/copy-pdfjs-assets.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^6.4.299",
+    "sherpa-onnx-node": "^1.13.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^24.19.2",
+    "electron": "^44.7.0",
+    "electron-vite": "^5.0.0",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vite": "^7.3.7",
+    "vitest": "^5.0.4"
+  }
+}

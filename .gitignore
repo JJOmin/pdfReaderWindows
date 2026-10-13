@@ -1,0 +1,13 @@
+node_modules/
+out/
+dist/
+models/
+src/renderer/public/pdfjs/
+tests/fixtures/*.pdf
+tests/fixtures/*.notes.*
+test-results/
+playwright-report/
+coverage/
+graphify-out/
+.claude/settings.local.json
+*.log

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PDF Reader</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <header id="toolbar">
+      <button id="open" title="Open a PDF (Ctrl+O)">Open</button>
+      <span id="title">No document</span>
+
+      <div class="group" role="group" aria-label="Read aloud">
+        <button id="prev" title="Previous sentence" aria-label="Previous sentence">⏮</button>
+        <button id="play" class="primary" title="Read aloud (Space)" aria-label="Read aloud">▶</button>
+        <button id="next" title="Next sentence" aria-label="Next sentence">⏭</button>
+        <button id="stop" title="Stop reading" aria-label="Stop reading">⏹</button>
+        <label title="Reading speed">
+          <input id="speed" type="range" min="0.6" max="2" step="0.05" aria-label="Reading speed" />
+          <output id="speed-value"></output>
+        </label>
+      </div>
+
+      <div class="group" role="group" aria-label="View">
+        <button id="zoom-out" title="Zoom out (Ctrl+-)" aria-label="Zoom out">−</button>
+        <button id="zoom-in" title="Zoom in (Ctrl++)" aria-label="Zoom in">+</button>
+        <span id="page-info"></span>
+      </div>
+
+      <span class="spacer"></span>
+      <button id="open-voices">Voices</button>
+      <button id="toggle-sidebar" aria-pressed="true">Notes</button>
+    </header>
+
+    <main>
+      <div id="viewer-container">
+        <div id="scroller"><div id="pages" class="pdfViewer"></div></div>
+      </div>
+      <aside id="sidebar">
+        <h2>Notes</h2>
+        <textarea id="notes" placeholder="General notes on this document"></textarea>
+        <div class="row">
+          <h2>Highlights</h2>
+          <button id="export" title="Save notes and highlights as Markdown next to the PDF">Export</button>
+        </div>
+        <ol id="annotations"></ol>
+      </aside>
+    </main>
+
+    <div id="selection-menu" hidden>
+      <button data-color="yellow" aria-label="Highlight yellow"></button>
+      <button data-color="green" aria-label="Highlight green"></button>
+      <button data-color="blue" aria-label="Highlight blue"></button>
+      <button data-color="red" aria-label="Highlight red"></button>
+      <button id="read-from-here">▶ Read from here</button>
+    </div>
+
+    <dialog id="voices">
+      <form method="dialog">
+        <h2>Voices</h2>
+        <p>Each language has a main voice. Quotes and headings can use their own.</p>
+        <div id="voice-rows"></div>
+        <button>Close</button>
+      </form>
+    </dialog>
+
+    <footer id="status" role="status"></footer>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

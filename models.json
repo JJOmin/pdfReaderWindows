@@ -1,0 +1,83 @@
+[
+  {
+    "id": "kokoro",
+    "label": "Kokoro",
+    "engine": "kokoro",
+    "dir": "kokoro-multi-lang-v1_0",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+    "sizeMb": 350,
+    "license": "Apache-2.0",
+    "langs": ["en"],
+    "recommended": true,
+    "speakers": {
+      "3": "Heart (US, female)",
+      "2": "Bella (US, female)",
+      "6": "Nicole (US, female)",
+      "16": "Michael (US, male)",
+      "14": "Fenrir (US, male)",
+      "21": "Emma (UK, female)",
+      "26": "George (UK, male)",
+      "24": "Daniel (UK, male)"
+    }
+  },
+  {
+    "id": "piper-thorsten",
+    "label": "Piper Thorsten",
+    "engine": "vits",
+    "dir": "vits-piper-de_DE-thorsten-high",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-de_DE-thorsten-high.tar.bz2",
+    "sizeMb": 116,
+    "license": "CC0 voice, GPL-3.0 phonemizer data",
+    "langs": ["de"],
+    "recommended": true,
+    "speakers": { "0": "Thorsten (male)" }
+  },
+  {
+    "id": "supertonic",
+    "label": "Supertonic 3",
+    "engine": "supertonic",
+    "dir": "sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
+    "sizeMb": 129,
+    "license": "MIT code, OpenRAIL-M model",
+    "langs": ["en", "de"],
+    "recommended": true,
+    "speakers": {
+      "0": "Voice 1",
+      "1": "Voice 2",
+      "2": "Voice 3",
+      "3": "Voice 4",
+      "4": "Voice 5",
+      "5": "Voice 6",
+      "6": "Voice 7",
+      "7": "Voice 8",
+      "8": "Voice 9",
+      "9": "Voice 10"
+    }
+  },
+  {
+    "id": "pocket",
+    "label": "Pocket TTS",
+    "engine": "pocket",
+    "dir": "sherpa-onnx-pocket-tts-2026-01-26",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-pocket-tts-2026-01-26.tar.bz2",
+    "sizeMb": 168,
+    "license": "Non-commercial ONNX export",
+    "langs": ["en"],
+    "recommended": false,
+    "speakers": { "0": "Bria", "1": "Loona" },
+    "referenceWavs": ["test_wavs/bria.wav", "test_wavs/loona.wav"]
+  },
+  {
+    "id": "aligner",
+    "label": "Word aligner (speech recogniser)",
+    "engine": "aligner",
+    "dir": "sherpa-onnx-nemo-fast-conformer-ctc-en-de-es-fr-14288-int8",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-fast-conformer-ctc-en-de-es-fr-14288-int8.tar.bz2",
+    "sizeMb": 103,
+    "license": "CC-BY-4.0",
+    "langs": ["en", "de"],
+    "recommended": true,
+    "speakers": {}
+  }
+]

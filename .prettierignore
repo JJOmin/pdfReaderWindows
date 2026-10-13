@@ -1,0 +1,7 @@
+out/
+models/
+node_modules/
+src/renderer/public/
+test-results/
+playwright-report/
+package-lock.json
