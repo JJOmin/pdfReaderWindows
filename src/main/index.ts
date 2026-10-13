@@ -14,6 +14,7 @@ import {
 } from '../shared/settings';
 import type { NotesFile, OpenedPdf, Settings, SynthRequest } from '../shared/types';
 import { annotate, parseMarks } from './annotate';
+import { resourcePaths } from './resources';
 import { Tts } from './tts';
 
 const RENDERER_DIR = join(import.meta.dirname, '../renderer');
@@ -30,12 +31,15 @@ const CSP = [
 // PDFREADER_USER_DATA lets tests run against a throwaway profile.
 if (process.env.PDFREADER_USER_DATA) app.setPath('userData', process.env.PDFREADER_USER_DATA);
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json');
-const modelsDir =
-  process.env.PDFREADER_MODELS ??
-  (app.isPackaged ? join(app.getPath('userData'), 'models') : join(app.getAppPath(), 'models'));
+const { modelsDir, helperScript } = resourcePaths({
+  packaged: app.isPackaged,
+  appPath: app.getAppPath(),
+  resourcesPath: process.resourcesPath,
+  modelsOverride: process.env.PDFREADER_MODELS,
+});
 const tts = new Tts(modelsDir, {
   cacheDir: join(app.getPath('userData'), 'voice-cache'),
-  helperScript: join(app.getAppPath(), 'helper', 'xtts_helper.py'),
+  helperScript,
 });
 
 /** The PDF the window shows. Notes are only ever written next to this file. */

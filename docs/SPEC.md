@@ -63,21 +63,22 @@ headings and paragraphs, hyphenation undone, no headers, footers or page numbers
 
 **GPU voice (XTTS-v2).** Optional, for Windows with an NVIDIA GPU. `npm run gpu-voice --
 --accept-licence` creates a Python environment and downloads the weights (about 7 GB). After a
-restart, "XTTS-v2 · Claribel Dervla (GPU)" is offered under Voices for both languages, and the
-**Pre-render** button appears in the toolbar. Chosen by listening, ADR 5.
+restart, "XTTS-v2 · Claribel Dervla (GPU)" is offered under Voices for both languages. Chosen by
+listening, ADR 5.
 
 - A sentence is rendered by a helper process (`helper/xtts_helper.py`) into a cache of 16-bit WAV
   files in the app's data folder, keyed by text, voice, language and speed. The cache is kept
   between sessions and trimmed to 2 GiB, least recently used first.
-- **Pre-render** renders the whole open document with XTTS in the background, from the page in
-  view to the end and then the pages before it. It does not depend on the voice chosen for
-  reading: read with any other voice meanwhile, and choose XTTS under Voices when it is done. Click
-  again to stop; what is done stays. It renders at the speed set when it was started.
-- Without pre-rendering, XTTS still reads: a sentence not in the cache is rendered when it is
-  needed. A sentence somebody is waiting for goes before one being pre-rendered.
+- A sentence not in the cache is rendered when it is needed, the one being waited for before any
+  other. There is no **Pre-render** button for now: it was removed from the toolbar on
+  2026-10-13. The job behind it (`src/shared/prerender.ts`, `Api.prerender`, `Tts.prerender`)
+  is still there and tested, so the button can come back.
 - The first XTTS sentence takes the model's load time (about 20 seconds here), then about 4
-  seconds per sentence if not rendered ahead. The helper stops after ten minutes without a
-  request and gives the GPU memory back.
+  seconds per sentence. The helper stops after ten minutes without a request and gives the GPU
+  memory back.
+
+**Installer.** `npm run dist` builds `PDF-Reader-<version>-setup.exe` for Windows x64 with the
+recommended speech models inside. Unsigned. The GPU voice is not part of it. See ADR 6.
 
 **Text detection.** Headings, paragraphs across two columns, hyphenation undone at line ends,
 running headers, footers, page numbers and margin stamps dropped, numeric citations such as

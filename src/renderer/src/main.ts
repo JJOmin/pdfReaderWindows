@@ -1,5 +1,3 @@
-import { prerender } from '../../shared/prerender';
-import { isRenderedVoice } from '../../shared/render-cache';
 import { READING_LIMITS, resolveVoice } from '../../shared/settings';
 import type { Api, OpenedPdf, Progress, RawRange, Utterance } from '../../shared/types';
 import { focusBand, scrollToCentre } from './focus';
@@ -264,9 +262,6 @@ function setView(next: TextView): void {
 async function show(opened: OpenedPdf | null): Promise<void> {
   if (!opened) return;
   reader.stop();
-  // The sentences being rendered belong to the document that is closing.
-  prerendering?.abort();
-  prerenderButton.textContent = 'Pre-render';
   // Nothing about the previous document may be reported as this one's.
   clearTimeout(progressTimer);
   const saved = opened.progress;
@@ -390,78 +385,6 @@ polish.addEventListener('change', () => {
   settings.polish = polish.checked;
   reader.polish = settings.polish;
   saveSettings();
-});
-
-const prerenderButton = $<HTMLButtonElement>('#prerender');
-/** Set while a pre-render runs; aborting it stops after the sentence in progress. */
-let prerendering: AbortController | undefined;
-// Only a rendered voice needs this, so the button is there only when one is installed.
-prerenderButton.hidden = !voices.some(isRenderedVoice);
-
-const showPrerender = (label: string, running: boolean): void => {
-  prerenderButton.textContent = label;
-  prerenderButton.setAttribute('aria-pressed', String(running));
-  prerenderButton.title = running
-    ? 'Stop rendering. What is done stays.'
-    : 'Render this document with the XTTS voice in the background, at the current speed. Read with any other voice meanwhile, and pick XTTS under Voices when it is done.';
-};
-
-/**
- * Renders the open document with the XTTS voice, from the page in view onwards. It does not
- * depend on the voice chosen for reading: the point is to read with another voice meanwhile,
- * and to find the sentences ready when XTTS is chosen.
- */
-async function startPrerender(): Promise<void> {
-  const gpu = voices.find(isRenderedVoice);
-  if (!gpu || pdf.pageCount === 0) return;
-  // Fixed now: a speed or voice changed while this runs must not change what is being rendered.
-  const speed = settings.speed;
-  const controller = new AbortController();
-  prerendering = controller;
-  showPrerender('Rendering…', true);
-  let label = 'Pre-render';
-  try {
-    const result = await prerender<Utterance>(
-      {
-        pageCount: () => pdf.pageCount,
-        utterances: (page) => pdf.pageUtterances(page),
-        request: (utterance) =>
-          gpu.langs.includes(utterance.lang)
-            ? // The same text, voice and speed playback sends, so that playback finds the result.
-              {
-                text: utterance.spoken,
-                words: [],
-                lang: utterance.lang,
-                voice: { model: gpu.model, sid: gpu.sid },
-                speed,
-              }
-            : undefined,
-        render: (request) => api.prerender(request),
-        progress: ({ pagesDone, pages }) => showPrerender(`Rendering ${pagesDone}/${pages}`, true),
-      },
-      view.currentPage,
-      controller.signal,
-    );
-    const failed = result.failed > 0 ? `, ${result.failed} could not be rendered` : '';
-    const message = result.cancelled
-      ? `Rendering stopped after ${result.rendered} sentences`
-      : `Rendered ${result.rendered} sentences with XTTS at ${speed.toFixed(2)}×${failed}`;
-    status(message, false);
-    // Kept on the button: the status line is overwritten by the reader a moment later.
-    if (!result.cancelled && result.failed === 0) label = 'Rendered ✓';
-  } catch (error) {
-    status(error instanceof Error ? error.message : String(error), true);
-  } finally {
-    // A newer run may have taken over if this document was replaced meanwhile.
-    if (prerendering === controller) {
-      prerendering = undefined;
-      showPrerender(label, false);
-    }
-  }
-}
-prerenderButton.addEventListener('click', () => {
-  if (prerendering) prerendering.abort();
-  else void startPrerender();
 });
 
 $('#open-voices').addEventListener('click', () => {

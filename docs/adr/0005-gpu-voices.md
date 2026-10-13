@@ -13,6 +13,11 @@ overstated by the same factor. The XTTS-v2 rows, clips and figures in this docum
 corrected ones (speed 0.47 instead of 0.46, load 22 s instead of 27 s). The other three models take
 their rate from the model itself and were not affected.
 
+**Update, 2026-10-13.** The **Pre-render** button was removed from the toolbar, for now. The
+cache, the job and the API behind it stay, so reading with XTTS is unchanged and a sentence is
+still rendered once. Where this document says the button does something, read it as "the job
+can".
+
 ## Decision
 
 XTTS-v2 is added as a voice beside the CPU voices, not in place of them, with one speaker

@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -83,57 +83,15 @@ async function spokenWords(page: Page, count: number): Promise<string[]> {
   return words;
 }
 
-test('renders the document with XTTS in the background while another voice reads, then plays it from the cache', async () => {
+test('reads with XTTS, rendering each sentence as it is needed', async () => {
   const { page, cache, rendered, errors } = await launch();
-  const button = page.locator('#prerender');
-  await expect(button).toBeVisible();
-  await expect(button).toHaveText('Pre-render');
-
-  // The voices dialog offers the GPU voice for both languages.
+  // The voices dialog offers the GPU voice for both languages, and no toolbar button for it.
   await page.click('#open-voices');
   for (const lang of ['en', 'de']) {
     await expect(page.locator(`#voice-${lang}-main option[value="xtts:0"]`)).toHaveCount(1);
   }
   await page.keyboard.press('Escape');
-
-  // Start rendering; the default CPU voices keep reading while it runs.
-  await button.click();
-  await expect(button).toHaveAttribute('aria-pressed', 'true');
-  await page.click('#play');
-  const meanwhile = await spokenWords(page, 5);
-  expect(meanwhile.slice(0, 3)).toEqual(['Vorlesen', 'wissenschaftlicher', 'Texte']);
-  await expect(button).toHaveAttribute('aria-pressed', 'true');
-  await page.click('#stop');
-
-  await expect(button).toHaveText('Rendered ✓', { timeout: 300_000 });
-  const count = rendered().length;
-  expect(count).toBeGreaterThan(5);
-  // Real audio: a 16-bit mono WAV at the decoder's own 24 kHz, a second or more long.
-  const clip = readFileSync(join(cache, rendered()[0]!));
-  expect(clip.toString('ascii', 0, 4)).toBe('RIFF');
-  expect(clip.readUInt32LE(24)).toBe(24000);
-  expect(clip.length).toBeGreaterThan(24000 * 2);
-  const renderedBy = Date.now();
-
-  // Choose XTTS for everything and read from the top.
-  await chooseXtts(page);
-  await page.evaluate(() => document.querySelector('#scroller')!.scrollTo(0, 0));
-  await page.click('#play');
-  const words = await spokenWords(page, 8);
-  expect(words.slice(0, 3)).toEqual(['Vorlesen', 'wissenschaftlicher', 'Texte']);
-  expect(await highlighted(page, 'spoken-sentence')).toContain('Dieser Text prüft');
-  await page.click('#stop');
-
-  // Everything was found in the cache: reading rendered nothing new, and the files it used were
-  // touched (a hit refreshes the file's time, so that the cache evicts what is used least).
-  expect(rendered().length).toBe(count);
-  const used = rendered().filter((name) => statSync(join(cache, name)).mtimeMs >= renderedBy);
-  expect(used.length).toBeGreaterThanOrEqual(3);
-  expect(errors).toEqual([]);
-});
-
-test('reads with XTTS without any pre-rendering, rendering each sentence as it is needed', async () => {
-  const { page, rendered, errors } = await launch();
+  await expect(page.locator('#prerender')).toHaveCount(0);
   await chooseXtts(page);
   expect(rendered()).toHaveLength(0);
 
@@ -147,5 +105,10 @@ test('reads with XTTS without any pre-rendering, rendering each sentence as it i
 
   // What was read, and the sentences prepared ahead of it, are in the cache now.
   expect(rendered().length).toBeGreaterThanOrEqual(3);
+  // Real audio: a 16-bit mono WAV at the decoder's own 24 kHz, a second or more long.
+  const clip = readFileSync(join(cache, rendered()[0]!));
+  expect(clip.toString('ascii', 0, 4)).toBe('RIFF');
+  expect(clip.readUInt32LE(24)).toBe(24000);
+  expect(clip.length).toBeGreaterThan(24000 * 2);
   expect(errors).toEqual([]);
 });
