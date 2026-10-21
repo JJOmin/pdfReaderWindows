@@ -8,6 +8,7 @@ import { prepareForPhone } from './phone';
 import { Reader } from './reader';
 import { ReadingView } from './reading-view';
 import { Search } from './search';
+import { setUpPhones } from './phones';
 import { setUpSync } from './sync';
 import type { TextView } from './view';
 import { renderVoices, SAMPLES } from './voices';
@@ -421,6 +422,7 @@ const showPreparing = (): void => {
   $('#phone-syncing').toggleAttribute('hidden', preparing === undefined);
 };
 const phoneSync = setUpSync(api, phoneStatus);
+setUpPhones(api);
 $('#open-phone').addEventListener('click', () => {
   showPreparing();
   $<HTMLDialogElement>('#phone').showModal();

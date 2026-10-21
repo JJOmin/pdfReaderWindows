@@ -24,6 +24,17 @@ const api: Api = {
   syncKey: () => ipcRenderer.invoke('sync:key'),
   syncSetKey: (key) => ipcRenderer.invoke('sync:set-key', key),
   syncRun: () => ipcRenderer.invoke('sync:run'),
+  phoneServer: () => ipcRenderer.invoke('phone:status'),
+  phoneServerEnable: (on) => ipcRenderer.invoke('phone:enable', on),
+  phoneRemove: (device) => ipcRenderer.invoke('phone:remove', device),
+  phonePairing: (open) => ipcRenderer.invoke('phone:pairing', open),
+  onPhoneEvent: (listener) => {
+    ipcRenderer.on('phone:pair', (_event, name: unknown) => {
+      if (typeof name === 'string') listener({ kind: 'pair', name });
+    });
+    ipcRenderer.on('phone:changed', () => listener({ kind: 'changed' }));
+  },
+  phoneAnswer: (accept) => ipcRenderer.invoke('phone:answer', accept),
 };
 
 contextBridge.exposeInMainWorld('api', api);

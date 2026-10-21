@@ -1,0 +1,213 @@
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { createHash, randomBytes } from 'node:crypto';
+import { createSocket } from 'node:dgram';
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { request } from 'node:https';
+import type { TLSSocket } from 'node:tls';
+import { networkInterfaces, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { codeMatches, parseAnnouncement } from '../../src/shared/pairing.ts';
+
+// Step S5 of ADR 7: a Node client stands in for the phone. Needs the fixture and the speech
+// models, because the library it downloads is prepared first. Port 47613 must be free.
+const fixture = join(import.meta.dirname, '../fixtures/sample.pdf');
+const PORT = 47613;
+const GROUP = '239.255.47.13';
+
+let app: ElectronApplication | undefined;
+let page: Page;
+let dir: string;
+const pageErrors: string[] = [];
+
+test.describe.configure({ mode: 'serial' });
+
+test.beforeAll(async () => {
+  dir = mkdtempSync(join(tmpdir(), 'pdfreader-server-'));
+  copyFileSync(fixture, join(dir, 'sample.pdf'));
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    PDFREADER_USER_DATA: join(dir, 'profile'),
+  };
+  delete env.ELECTRON_RUN_AS_NODE; // set by VS Code's extension host; would start Electron as plain Node
+  app = await electron.launch({
+    args: ['.', join(dir, 'sample.pdf'), '--mute-audio'],
+    env: env as Record<string, string>,
+  });
+  page = await app.firstWindow();
+  page.on('pageerror', (error) => pageErrors.push(error.stack ?? error.message));
+});
+
+test.afterAll(async () => {
+  await app?.close();
+});
+
+interface Answer {
+  status: number;
+  body: Buffer;
+  fingerprint: string;
+}
+
+/** One HTTPS request to the app, as the phone makes it: the certificate is checked by its fingerprint. */
+function call(
+  method: string,
+  path: string,
+  options: { token?: string; body?: unknown } = {},
+): Promise<Answer> {
+  return new Promise((resolve, reject) => {
+    const body = options.body === undefined ? undefined : Buffer.from(JSON.stringify(options.body));
+    const req = request(
+      {
+        host: '127.0.0.1',
+        port: PORT,
+        method,
+        path,
+        rejectUnauthorized: false,
+        headers: {
+          ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+          ...(body ? { 'content-type': 'application/json', 'content-length': body.length } : {}),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        const raw = (res.socket as TLSSocket).getPeerCertificate().raw;
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks),
+            fingerprint: createHash('sha256').update(raw).digest('hex'),
+          }),
+        );
+      },
+    );
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+/** Waits for the app's UDP announcement, as the phone's Desktops screen does. */
+function hearAnnouncement(): Promise<{ name: string; port: number }> {
+  return new Promise((resolve, reject) => {
+    const socket = createSocket({ type: 'udp4', reuseAddr: true });
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error('No announcement within 10 s'));
+    }, 10_000);
+    socket.on('message', (message) => {
+      const heard = parseAnnouncement(new Uint8Array(message));
+      if (!heard) return;
+      clearTimeout(timer);
+      socket.close();
+      resolve(heard);
+    });
+    // Joined on every interface, as the phone joins on its Wi-Fi: Windows delivers nothing to a
+    // membership on the default interface alone.
+    socket.bind(PORT, () => {
+      for (const a of Object.values(networkInterfaces()).flat()) {
+        if (a?.family === 'IPv4') socket.addMembership(GROUP, a.address);
+      }
+    });
+  });
+}
+
+const device = randomBytes(16).toString('hex');
+let token = '';
+let code = '';
+let docId = '';
+
+test('a prepared document and phone sync switched on', async () => {
+  await expect(page.locator('#page-info')).toHaveText('1 / 2');
+  await page.click('#open-phone');
+  await expect(page.locator('#lan-enabled')).not.toBeChecked();
+  await expect(page.locator('#lan-on')).toBeHidden();
+  await page.click('#phone-add');
+  await expect(page.locator('#phone-progress')).toContainText('is ready', { timeout: 170_000 });
+  docId = createHash('sha256').update(readFileSync(fixture)).digest('hex');
+
+  const announced = hearAnnouncement();
+  await page.click('#open-phone');
+  await page.check('#lan-enabled');
+  await expect(page.locator('#lan-code')).toHaveText(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/u);
+  code = (await page.locator('#lan-code').textContent())!;
+  expect(await announced).toMatchObject({ port: PORT });
+});
+
+test('the code proves the certificate, and a wrong code does not', async () => {
+  const hello = await call('GET', '/v1/hello');
+  expect(hello.status).toBe(200);
+  expect(JSON.parse(hello.body.toString())).toMatchObject({ app: 'pdfreader', protocol: 1 });
+  expect(codeMatches(hello.fingerprint, code)).toBe(true);
+  const wrong = code.replace(/^./u, (c) => (c === 'A' ? 'B' : 'A'));
+  expect(codeMatches(hello.fingerprint, wrong)).toBe(false);
+});
+
+test('pairing needs the user to accept, while the dialog is open', async () => {
+  const asking = { device, name: 'Test phone' };
+  const declined = call('POST', '/v1/pair', { body: asking });
+  await expect(page.locator('#lan-ask-text')).toHaveText('Pair with Test phone?');
+  await page.click('#lan-decline');
+  expect((await declined).status).toBe(403);
+
+  const accepted = call('POST', '/v1/pair', { body: asking });
+  await page.click('#lan-accept');
+  const answer = await accepted;
+  expect(answer.status).toBe(200);
+  token = (JSON.parse(answer.body.toString()) as { token: string }).token;
+  expect(token).toMatch(/^[0-9a-f]{64}$/u);
+  await expect(page.locator('#lan-phones li')).toContainText('Test phone');
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#phone')).toBeHidden();
+  expect((await call('POST', '/v1/pair', { body: asking })).status).toBe(404);
+});
+
+test('a paired phone downloads the library byte for byte, and an unknown token gets nothing', async () => {
+  const library = await call('GET', '/v1/library', { token });
+  expect(library.status).toBe(200);
+  expect(JSON.parse(library.body.toString())).toEqual([
+    expect.objectContaining({ docId, name: 'sample.pdf' }),
+  ]);
+
+  const folder = join(dir, 'profile', 'phone-library', docId);
+  const files = [
+    'document.pdf',
+    'manifest.json',
+    ...readdirSync(join(folder, 'pages')).map((f) => `pages/${f}`),
+    ...readdirSync(join(folder, 'audio')).map((f) => `audio/${f}`),
+  ];
+  for (const file of files) {
+    const got = await call('GET', `/v1/doc/${docId}/${file}`, { token });
+    expect(got.status, file).toBe(200);
+    expect(got.body.equals(readFileSync(join(folder, ...file.split('/')))), file).toBe(true);
+  }
+
+  const stranger = randomBytes(32).toString('hex');
+  for (const path of ['/v1/library', `/v1/doc/${docId}/document.pdf`, `/v1/doc/${docId}/state`]) {
+    const got = await call('GET', path, { token: stranger });
+    expect(got.status, path).toBe(401);
+    expect(got.body.length).toBe(0);
+    expect((await call('GET', path)).status).toBe(401);
+  }
+  expect((await call('GET', `/v1/doc/${docId}/../../settings.json`, { token })).status).toBe(404);
+});
+
+test('a phone writes its own place and no other device’s', async () => {
+  const state = { device, name: 'Test phone', updated: Date.now(), page: 2, offset: 0.1, sentence: null };
+  expect((await call('PUT', `/v1/doc/${docId}/state/${device}`, { token, body: state })).status).toBe(204);
+  const other = 'e'.repeat(32);
+  const forged = { ...state, device: other };
+  expect((await call('PUT', `/v1/doc/${docId}/state/${other}`, { token, body: forged })).status).toBe(403);
+  const states = await call('GET', `/v1/doc/${docId}/state`, { token });
+  expect(JSON.parse(states.body.toString())).toEqual([state]);
+});
+
+test('Remove stops a paired phone at once', async () => {
+  await page.click('#open-phone');
+  await page
+    .locator('#lan-phones li', { hasText: 'Test phone' })
+    .getByRole('button', { name: 'Remove' })
+    .click();
+  await expect(page.locator('#lan-phones li')).toHaveCount(0);
+  expect((await call('GET', '/v1/library', { token })).status).toBe(401);
+  expect(pageErrors).toEqual([]);
+});

@@ -246,3 +246,10 @@ holds it.
   Both the 24 kHz and the 22.05 kHz voice were resampled with `OfflineAudioContext`. Chromium's
   decoder and libsndfile 1.2.2 (libogg and libopus) both read the files at the exact length.
 - That the owner's router passes multicast between Wi-Fi and the desktop's network port.
+- _Built in S5, 2026-10-21:_ TLS on port 47613, announcements to the administratively scoped group
+  239.255.47.13 on the same port. On Windows, one socket that switches its multicast interface sent
+  every packet out of one adapter (a Hyper-V adapter beside the Wi-Fi), so the desktop keeps one
+  socket bound to each address. A listener must join the group on its interface by address: a
+  membership on the default interface heard nothing. The owner's network is marked Public in
+  Windows, and the firewall rule Windows made for Electron allows it there; ADR 7 meant private
+  networks only.

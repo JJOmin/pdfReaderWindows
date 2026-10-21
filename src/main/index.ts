@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, safeStorage, shell } from 'electron';
 import { existsSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { basename, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseNotes } from '../shared/notes';
@@ -15,6 +16,7 @@ import {
 import type { NotesFile, OpenedPdf, Settings, SynthRequest } from '../shared/types';
 import { annotate, parseMarks } from './annotate';
 import { PhoneLibrary, sha256, type LibraryDocument } from './library';
+import { PhoneServer } from './phone-server';
 import { resourcePaths } from './resources';
 import { SyncManager } from './sync/manager';
 import { Tts } from './tts';
@@ -49,21 +51,38 @@ let currentPdf: string | undefined;
 /** The same PDF as the phone library names it, by the hash of the bytes that were opened. */
 let currentDoc: LibraryDocument | undefined;
 const libraryRoot = join(app.getPath('userData'), 'phone-library');
+/** Secrets for both kinds of sync, encrypted with what the operating system keeps for this user. */
+const secretBox = {
+  encrypt: (text: string): string => {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('This system cannot keep secrets safely');
+    return safeStorage.encryptString(text).toString('base64');
+  },
+  decrypt: (text: string): string => safeStorage.decryptString(Buffer.from(text, 'base64')),
+};
 const library = new PhoneLibrary(libraryRoot);
 const sync = new SyncManager({
   configPath: join(app.getPath('userData'), 'sync.json'),
   libraryRoot,
-  box: {
-    encrypt: (text) => {
-      if (!safeStorage.isEncryptionAvailable()) throw new Error('This system cannot keep secrets safely');
-      return safeStorage.encryptString(text).toString('base64');
-    },
-    decrypt: (text) => safeStorage.decryptString(Buffer.from(text, 'base64')),
-  },
+  box: secretBox,
   // Only addresses the sync code built itself are opened, and only as web pages.
   openUrl: (url) => {
     if (/^https?:\/\//u.test(url)) void shell.openExternal(url);
   },
+});
+/** The answer to the "Pair with …?" the window is showing, if one is open. */
+let pairAnswer: ((accept: boolean) => void) | undefined;
+const phones = new PhoneServer({
+  dir: app.getPath('userData'),
+  libraryRoot,
+  name: hostname(),
+  box: secretBox,
+  askPair: (name) =>
+    new Promise((resolve) => {
+      pairAnswer?.(false);
+      pairAnswer = resolve;
+      BrowserWindow.getAllWindows()[0]?.webContents.send('phone:pair', name);
+    }),
+  onChange: () => BrowserWindow.getAllWindows()[0]?.webContents.send('phone:changed'),
 });
 /** Names the current opening, so that a late message about the previous document is ignored. */
 let currentId = 0;
@@ -193,6 +212,21 @@ function registerIpc(): void {
   ipcMain.handle('sync:key', () => sync.key());
   ipcMain.handle('sync:set-key', (_event, key: unknown) => sync.setKey(key));
   ipcMain.handle('sync:run', () => sync.run());
+  ipcMain.handle('phone:status', () => phones.status());
+  ipcMain.handle('phone:enable', (_event, on: unknown) => phones.setEnabled(on));
+  ipcMain.handle('phone:remove', (_event, device: unknown) => phones.remove(device));
+  ipcMain.handle('phone:pairing', (_event, open: unknown) => {
+    phones.setPairing(open);
+    // A question nobody can see any more is a no.
+    if (open !== true) {
+      pairAnswer?.(false);
+      pairAnswer = undefined;
+    }
+  });
+  ipcMain.handle('phone:answer', (_event, accept: unknown) => {
+    pairAnswer?.(accept === true);
+    pairAnswer = undefined;
+  });
   ipcMain.handle('tts:voices', () => tts.voices());
   // Whatever the renderer sends is checked here: it is a sandboxed page, not trusted code.
   const request = (value: unknown): SynthRequest => {
@@ -260,8 +294,12 @@ void app.whenReady().then(() => {
   });
   registerIpc();
   createWindow();
+  void phones.start();
 });
 
 app.on('window-all-closed', () => app.quit());
 // The GPU voice's helper holds GPU memory until it is told to go.
-app.on('will-quit', () => tts.close());
+app.on('will-quit', () => {
+  tts.close();
+  phones.close();
+});

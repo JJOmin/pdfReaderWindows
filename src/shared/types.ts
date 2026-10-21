@@ -182,6 +182,23 @@ export interface SyncReport {
   unreadable: number;
 }
 
+/** The phone server of ADR 7, as the Phone dialog shows it. */
+export interface PhoneServerStatus {
+  /** Switched on by the user; off by default. */
+  enabled: boolean;
+  /** Listening now. False while switched on means `error` says why. */
+  running: boolean;
+  error: string;
+  /** The code the user types on the phone, `XXXX-XXXX-XXXX`; empty while switched off. */
+  code: string;
+  port: number;
+  /** This computer's addresses, for typing on a network that blocks multicast. */
+  addresses: string[];
+  phones: { device: string; name: string; paired: number }[];
+}
+
+export type PhoneEvent = { kind: 'pair'; name: string } | { kind: 'changed' };
+
 /** The API the preload script exposes to the renderer as `window.api`. */
 export interface Api {
   openPdf(): Promise<OpenedPdf | null>;
@@ -224,4 +241,14 @@ export interface Api {
   syncSetKey(key: string): Promise<string>;
   /** Sends the phone library to the store and fetches the other devices' places. */
   syncRun(): Promise<SyncReport>;
+  phoneServer(): Promise<PhoneServerStatus>;
+  /** Switches phone sync on the local network on or off (ADR 7). It stays so across restarts. */
+  phoneServerEnable(on: boolean): Promise<PhoneServerStatus>;
+  /** Forgets a paired phone; its token stops working at once. */
+  phoneRemove(device: string): Promise<PhoneServerStatus>;
+  /** The Phone dialog opened or closed: pairing requests are answered only while it is open. */
+  phonePairing(open: boolean): Promise<void>;
+  /** A phone asks to pair (answer with `phoneAnswer`), or the paired phones changed. */
+  onPhoneEvent(listener: (event: PhoneEvent) => void): void;
+  phoneAnswer(accept: boolean): Promise<void>;
 }

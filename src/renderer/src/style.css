@@ -561,3 +561,48 @@ dialog p {
 ::highlight(search-current) {
   background-color: rgb(255 120 0 / 75%);
 }
+
+#lan-switch {
+  display: block;
+  margin-bottom: 8px;
+}
+
+#lan-code {
+  font-family: ui-monospace, monospace;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+#lan-ask {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+#lan-ask[hidden] {
+  display: none;
+}
+
+#lan-ask-text {
+  flex: 1;
+}
+
+#lan-phones {
+  padding-left: 18px;
+}
+
+#lan-phones li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#lan-error.error {
+  color: var(--red);
+}

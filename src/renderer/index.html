@@ -144,6 +144,23 @@
           <button type="button" id="phone-cancel" hidden>Cancel</button>
         </div>
 
+        <h3>Phones on this network</h3>
+        <label id="lan-switch"
+          ><input id="lan-enabled" type="checkbox" /> Let paired phones fetch prepared documents over
+          Wi-Fi</label
+        >
+        <div id="lan-on" hidden>
+          <p>On the phone, choose this computer and type the code <strong id="lan-code"></strong></p>
+          <p id="lan-addresses"></p>
+          <div id="lan-ask" role="alertdialog" aria-labelledby="lan-ask-text" hidden>
+            <span id="lan-ask-text"></span>
+            <button type="button" id="lan-accept">Accept</button>
+            <button type="button" id="lan-decline">Decline</button>
+          </div>
+          <ul id="lan-phones"></ul>
+        </div>
+        <p id="lan-error" class="error" role="status"></p>
+
         <h3>Sync between devices</h3>
         <p>
           Keeps the prepared documents and your place in your own Nextcloud or Dropbox. Everything is
