@@ -50,41 +50,58 @@ The desktop keeps the documents it prepared in `userData/phone-library/`, one fo
 `docId` is the SHA-256 of the PDF's bytes, in hex. The same file has the same id on both devices,
 wherever it lies and whatever the path or URI is.
 
-A sentence in `pages/<page>.json`:
+`pages/<page>.json` describes the page's words and its sentences in reading order:
 
 ```json
 {
-  "key": "3f9a…",
-  "lang": "en",
-  "ms": 4210,
-  "words": [
-    [0, 310],
-    [310, 720]
+  "wordCount": 728,
+  "wordsHash": "9c1e…",
+  "sentences": [
+    {
+      "key": "3f9a…",
+      "lang": "en",
+      "ms": 4210,
+      "from": 120,
+      "words": [
+        [0, 310],
+        [310, 720]
+      ]
+    }
   ]
 }
 ```
 
-`words` holds a start and end time in milliseconds for each word-like segment of the sentence
-(`isWordLike` in the segmenter), in order.
+A page's **words** are the word-like segments (`isWordLike` in the segmenter) of all its spoken
+sentences, in order, after NFKC. `wordsHash` is their SHA-256, joined by single spaces. A sentence
+covers the words from `from` onwards, one for each entry of `words`. Each entry is that word's start
+and end time in milliseconds.
 
-### 3. Sentences are matched by their text, not by offsets
+### 3. The phone takes the desktop's sentence breaks, by word index
 
-The phone's raw string comes from PDFium and the desktop's from PDF.js. They agree on `sample.pdf`,
-but Flutter ADR 1 records differences on real papers. Offsets from the desktop would be a second
-coordinate system on the phone. So the phone builds its own sentences from its own raw string, as it
-does now, and looks each one up by text:
+The phone's raw string comes from PDFium and the desktop's from PDF.js. Offsets from the desktop
+would be a second coordinate system on the phone, so they are never sent.
 
-- **Sync key**: the sentence text after NFKC with runs of whitespace collapsed to one space, hashed
-  with SHA-256, first 40 hex digits. The same normalisation in `src/shared/` and `lib/shared/`, with
-  the same test cases.
-- **Word timings** are used when the phone's sentence has the same number of words, otherwise the
-  phone falls back to the word-length estimate.
-- **A sentence with no match** is skipped. The owner turned the phone's own voice off for now, so
-  nothing could speak it. The document shows how many of its sentences have no audio. The first
-  step measures how often a sentence has no match, and with no voice to fall back on, that number
-  decides whether this design holds.
+The first idea was to match each phone sentence to a desktop sentence by its text. The spike
+(Flutter ADR 2, "Measured") found that only 92.6 % of a real paper's sentences match that way. The
+cause: the two engines detect headings differently, so sentences break in different places near
+headings, captions, tables and lists. The words themselves were identical, all 4,953 of them, page
+for page. So the shared ground is the page's word sequence, not its sentences.
 
-The place carries the same key for the same reason (section 8).
+- **When a page's words agree.** The phone computes its own words for the page, as above, from its
+  own raw string. If their count and hash equal the index's, the phone reads the page with the
+  desktop's sentences: sentence _n_ is the phone's words `from` to `from + words.length - 1`. Its
+  raw range runs from the first word's start to the last word's end in the phone's own raw string.
+  Highlights, marks and search stay in the phone's coordinates; the word index only links the two.
+  The audio and the word timings fit exactly, because they are the desktop's own sentence.
+- **When they do not agree**, which the spike never saw, that page falls back to matching sentences
+  by text. The **sync key** is the sentence text after NFKC with runs of whitespace collapsed to one
+  space, hashed with SHA-256, first 40 hex digits. A phone sentence with no match is skipped. The
+  owner turned the phone's own voice off for now, so nothing could speak it, and the document shows
+  how many sentences it skips.
+- The word segmentation, the normalisation and the hash are the same in `src/shared/` and
+  `lib/shared/`, with the same test cases.
+
+The place carries the sentence's key beside its index for the same reason (section 8).
 
 ### 4. Audio
 
@@ -195,8 +212,9 @@ holds it.
   serves paired phones only.
 - `userData` grows by about 11 MB per hour of prepared audio. The dialog can remove a document from
   the library.
-- When a sentence is split differently on the phone, it is skipped. Section 3's measurement says how
-  often.
+- On a prepared page the phone reads and tints sentences where the desktop breaks them, which can
+  differ from where its own layout would break them near headings. Only on a page whose words
+  differ is a sentence skipped.
 - The phone reads only documents the desktop prepared. A PDF opened on the phone alone shows and can
   be marked, but it is not read aloud.
 - The phone needs Android's `INTERNET` permission, which covers local sockets too (Flutter ADR 2).
@@ -212,7 +230,9 @@ holds it.
 
 ## Not verified
 
-- How many of the phone's sentences find their audio on real papers. That is the first step.
+- That a real German paper, with hyphens across lines, gives the same words on both engines. The
+  spike covered one English paper and the German and English `sample.pdf`, and it compared words
+  split at spaces, not the segmenter's word-like segments.
 - That WebCodecs' Opus encoder in Electron 44 runs faster than real time, and that its output plays
   on the phone.
 - That the owner's router passes multicast between Wi-Fi and the desktop's network port.
