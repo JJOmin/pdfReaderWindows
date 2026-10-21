@@ -34,6 +34,8 @@ const CSP = [
   "connect-src 'self' data: blob:",
 ].join('; ');
 
+// The computer's name, as phones list it. PDFREADER_DEVICE_NAME lets a test app be told from the real one.
+const computerName = process.env.PDFREADER_DEVICE_NAME || hostname();
 // PDFREADER_USER_DATA lets tests run against a throwaway profile.
 if (process.env.PDFREADER_USER_DATA) app.setPath('userData', process.env.PDFREADER_USER_DATA);
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json');
@@ -76,7 +78,7 @@ let pairAnswer: ((accept: boolean) => void) | undefined;
 const phones = new PhoneServer({
   dir: app.getPath('userData'),
   libraryRoot,
-  name: hostname(),
+  name: computerName,
   box: secretBox,
   askPair: (name) =>
     new Promise((resolve) => {
@@ -229,7 +231,7 @@ function registerIpc(): void {
         place.sentence && (await library.sentenceKey(doc.docId, place.sentence.page, place.sentence.index));
       const state: DeviceState = {
         device,
-        name: hostname(),
+        name: computerName,
         updated: now,
         page: place.page,
         offset: place.offset,

@@ -29,15 +29,37 @@ touch that, so the rule in `CLAUDE.md` now says so.
 
 ### 1. What is synced
 
-For each document: the PDF, the audio of every sentence, its word timings, and each device's place.
+For each document: the PDF, the audio of every sentence, its word timings, each device's place,
+and its notes: the marks, their comments and the general notes.
 
-Notes are not synced yet. The phone has no marks until its M2. When it does, `notes.json` joins the
-library with a merge rule decided then.
+_Decided by the owner on 2026-10-21, built in step S9 here and step 5.7 on the phone:_ notes are
+merged **per mark**. The file is the notes file of the desktop, with three optional additions, so
+that a file without them reads as before:
 
-_Decided by the owner on 2026-10-21:_ notes are merged **per mark**. Marks from both devices are
-kept by their id. When both edited the same mark, the newer edit wins. A deleted mark stays
-deleted, so a deletion is kept as a tombstone until both sides have it. The general notes take the
-newer text. Built as step S9 here and step 5.7 on the phone, after the phone's marks (its M2).
+- each mark has `updated`, the time of its last change in milliseconds;
+- `removed` lists the marks that were deleted, each with `id` and `updated`, so that a deletion
+  reaches the other device and is not undone by it;
+- `notesUpdated` is the time of the last change of the general notes.
+
+The rules, the same on both sides (`mergeNotes` in `src/shared/notes-merge.ts` and
+`lib/shared/notes_merge.dart`, with the same test cases):
+
+- Marks are kept by id from both sides. A mark changed on both takes the later change.
+- A deletion wins over a mark that was not changed after it. A mark changed after its deletion
+  comes back.
+- The general notes take the later text.
+- A mark without `updated`, as older files have, counts as the oldest.
+
+Each side stamps its own changes: the desktop's main process on every save, by comparing the save
+with the file it replaces (so the sidebar needs no knowledge of this), the phone when it changes a
+mark. Marks are found again on the other device by their **text**, not their offsets, because the
+two engines' raw strings differ: PDF.js has no character at a line end where PDFium has a space.
+`reanchor` therefore accepts any whitespace, or none, between the characters of a mark's text. It
+was added on the desktop after step 2.6's check found only 21 of the 72 marks the phone had written
+on a real paper; with it the desktop finds all 72, and the phone finds all 73 of the desktop's.
+
+`// shortcut: removals are kept for good, and times are the devices' own clocks. Upgrade if the
+file grows, or a wrong pick is ever seen.`
 
 ### 2. The phone library
 
@@ -50,6 +72,7 @@ The desktop keeps the documents it prepared in `userData/phone-library/`, one fo
   pages/<page>.json    the page's sentences: key, audio file, language, duration, word timings
   audio/<key>.opus     one file per distinct sentence
   state/<device>.json  where that device stopped
+  notes.json           the document's marks and comments, merged per mark (section 1)
 ```
 
 `docId` is the SHA-256 of the PDF's bytes, in hex. The same file has the same id on both devices,
@@ -181,6 +204,8 @@ apps.
 | `GET /v1/doc/<id>/<file>`         | yes   | a file of section 2: the PDF, the manifest, an index, audio |
 | `GET /v1/doc/<id>/state`          | yes   | every device's state for that document                      |
 | `PUT /v1/doc/<id>/state/<device>` | yes   | stores the asking device's own state                        |
+| `GET /v1/doc/<id>/notes`          | yes   | the document's notes, or 404 when there are none            |
+| `PUT /v1/doc/<id>/notes`          | yes   | merges the sent notes into the desktop's; answers the merge |
 
 The main process validates every request, as it does with the renderer's.
 
@@ -188,6 +213,8 @@ The main process validates every request, as it does with the renderer's.
   from the request.
 - A state body may be at most 4 KB and is parsed the same way `normalizeProgress` parses progress.
 - A device may write only its own state file.
+- A notes body may be at most 2 MB and must be a valid notes file, or it is answered with 400.
+  The desktop merges it, writes the result, and shows it at once if that document is open.
 - Anything else is answered with 404.
 
 The phone downloads only what it lacks: it compares the manifest and the indexes, then fetches the
