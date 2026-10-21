@@ -245,7 +245,8 @@ holds it.
   audio, with a reported pre-skip of 312, at 24.6 to 24.9 kbit/s for the Kokoro and Piper samples.
   Both the 24 kHz and the 22.05 kHz voice were resampled with `OfflineAudioContext`. Chromium's
   decoder and libsndfile 1.2.2 (libogg and libopus) both read the files at the exact length.
-- That the owner's router passes multicast between Wi-Fi and the desktop's network port.
+- ~~That the owner's router passes multicast between Wi-Fi and the desktop's network port.~~
+  _Measured 2026-10-21:_ the S20 FE heard the desktop's announcement 2.2 s after it began listening.
 - _Built in S5, 2026-10-21:_ TLS on port 47613, announcements to the administratively scoped group
   239.255.47.13 on the same port. On Windows, one socket that switches its multicast interface sent
   every packet out of one adapter (a Hyper-V adapter beside the Wi-Fi), so the desktop keeps one
