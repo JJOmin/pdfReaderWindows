@@ -70,8 +70,8 @@ the document is whole and nothing is sent again.
 
 Unchanged from ADR 7 section 8: each device writes only its own `state/<device>.json`. A sync sends
 this computer's file and writes the others' into the local `state/` folder, which S6 reads. A file is
-accepted only if its `device` is the name it carries. Nothing is merged, so any store works. The
-desktop does not write its own state yet (that is S6), so for now only the phone's reaches it.
+accepted only if its `device` is the name it carries. Nothing is merged, so any store works. Since
+S6 (2026-10-21) the desktop writes its own state for prepared documents, under the same `deviceId`.
 
 ### 5. Signing in
 
