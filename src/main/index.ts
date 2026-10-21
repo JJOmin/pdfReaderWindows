@@ -68,6 +68,15 @@ const sync = new SyncManager({
   configPath: join(app.getPath('userData'), 'sync.json'),
   libraryRoot,
   box: secretBox,
+  // The marks a sync brought for the open document are shown at once, as a phone's over Wi-Fi are.
+  onNotesChanged: (docId) => {
+    if (currentDoc?.docId !== docId || !currentPdf) return;
+    void readNotesFile(currentPdf)
+      .then((file) => mirrorNotes(currentDoc!, file))
+      .then((merged) => {
+        if (merged) BrowserWindow.getAllWindows()[0]?.webContents.send('notes:changed', merged);
+      });
+  },
   // Only addresses the sync code built itself are opened, and only as web pages.
   openUrl: (url) => {
     if (/^https?:\/\//u.test(url)) void shell.openExternal(url);

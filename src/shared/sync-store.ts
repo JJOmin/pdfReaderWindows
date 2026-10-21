@@ -40,6 +40,8 @@ export const remotePath = {
   pack: (docId: string, page: number): string => `${docId}/audio/${page}.pack`,
   states: (docId: string): string => `${docId}/state`,
   state: (docId: string, device: string): string => `${docId}/state/${device}.json`,
+  /** The document's marks and comments, merged per mark (ADR 7 section 1). */
+  notes: (docId: string): string => `${docId}/notes.json`,
 };
 
 const KEY = /^[0-9a-f]{40}$/;

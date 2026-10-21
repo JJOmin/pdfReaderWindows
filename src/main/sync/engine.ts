@@ -1,8 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parseNotes } from '../../shared/notes';
+import { mergeNotes } from '../../shared/notes-merge';
 import { parseDeviceState, parseManifest, parsePageIndex, type Manifest } from '../../shared/phone-library';
 import { packAudio, remotePath, seal, unseal, type SyncStore } from '../../shared/sync-store';
-import type { SyncReport } from '../../shared/types';
+import type { NotesFile, SyncReport } from '../../shared/types';
 
 const DOC_ID = /^[0-9a-f]{64}$/;
 const STATE_FILE = /^([0-9a-f]{32})\.json$/;
@@ -106,12 +108,62 @@ async function exchangeStates(
   return unreadable;
 }
 
-/** Brings the store and the phone library in `root` up to date with each other. */
+/**
+ * Exchanges a document's marks and comments: this side's and the store's are merged per mark (ADR 7
+ * section 1), and whichever side lacks the result gets it. No logic runs in the store, so two
+ * devices that write at the same moment can lose one update; the next sync merges again, since the
+ * merge loses nothing that either side still holds.
+ * `// shortcut: no revision check on the notes file. Upgrade if a lost update is ever seen.`
+ * Returns how many files could not be read, and whether this side's notes changed.
+ */
+async function exchangeNotes(
+  store: SyncStore,
+  key: Uint8Array,
+  folder: string,
+  docId: string,
+): Promise<{ unreadable: number; changed: boolean }> {
+  const file = join(folder, 'notes.json');
+  let local: NotesFile | null = null;
+  try {
+    local = parseNotes(JSON.parse(await readFile(file, 'utf8')));
+  } catch {
+    // No notes here yet, or a file that is not ours.
+  }
+  const path = remotePath.notes(docId);
+  const sealed = await store.get(path);
+  let remote: NotesFile | null = null;
+  if (sealed) {
+    try {
+      remote = parseNotes(JSON.parse(new TextDecoder().decode(await unseal(key, path, sealed))));
+    } catch {
+      // Another key, or a changed file: left as it is, and counted.
+    }
+    if (!remote) return { unreadable: 1, changed: false };
+  }
+  const merged = local && remote ? mergeNotes(local, remote) : (local ?? remote);
+  if (!merged) return { unreadable: 0, changed: false };
+  const text = JSON.stringify(merged, null, 2);
+  let changed = false;
+  if (!local || JSON.stringify(local, null, 2) !== text) {
+    await writeFile(file, text);
+    changed = true;
+  }
+  if (!remote || JSON.stringify(remote, null, 2) !== text) {
+    await store.put(path, await seal(key, path, new TextEncoder().encode(text)));
+  }
+  return { unreadable: 0, changed };
+}
+
+/**
+ * Brings the store and the phone library in `root` up to date with each other. `onNotesChanged` is
+ * told which documents' notes changed here, so that one that is open can show them.
+ */
 export async function syncLibrary(
   store: SyncStore,
   key: Uint8Array,
   root: string,
   device: string,
+  onNotesChanged: (docId: string) => void = () => undefined,
 ): Promise<SyncReport> {
   const report: SyncReport = { documents: 0, uploaded: 0, unreadable: 0 };
   let names: string[];
@@ -133,6 +185,9 @@ export async function syncLibrary(
     report.documents++;
     if (await uploadDocument(store, key, folder, manifest)) report.uploaded++;
     report.unreadable += await exchangeStates(store, key, folder, docId, device);
+    const notes = await exchangeNotes(store, key, folder, docId);
+    report.unreadable += notes.unreadable;
+    if (notes.changed) onNotesChanged(docId);
   }
   return report;
 }

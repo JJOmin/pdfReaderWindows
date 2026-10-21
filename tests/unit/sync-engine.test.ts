@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { syncLibrary } from '../../src/main/sync/engine';
+import type { Annotation, NotesFile } from '../../src/shared/types';
 import {
   buildPageIndex,
   LIBRARY_VERSION,
@@ -264,5 +265,106 @@ describe('places', () => {
     const report = await syncLibrary(store, key, root, DESKTOP);
     expect(report.unreadable).toBe(2);
     await expect(readFile(join(root, DOC, 'state', `${PHONE}.json`))).rejects.toThrow();
+  });
+});
+
+describe('notes', () => {
+  const mark = (id: string, over: Partial<Annotation> = {}): Annotation => ({
+    id,
+    page: 1,
+    start: 0,
+    end: 3,
+    text: 'One',
+    quote: 'One',
+    kind: 'highlight',
+    color: 'yellow',
+    comment: '',
+    created: '2026-10-21T00:00:00.000Z',
+    ...over,
+  });
+  const file = (annotations: Annotation[], extra: Partial<NotesFile> = {}): NotesFile => ({
+    version: 1,
+    notes: '',
+    annotations,
+    ...extra,
+  });
+  const writeLocal = (notes: NotesFile): Promise<void> =>
+    writeFile(join(root, DOC, 'notes.json'), JSON.stringify(notes));
+  const readLocal = async (): Promise<NotesFile> =>
+    JSON.parse(await readFile(join(root, DOC, 'notes.json'), 'utf8')) as NotesFile;
+  const sealRemote = async (notes: NotesFile): Promise<void> => {
+    const path = remotePath.notes(DOC);
+    store.files.set(path, await seal(key, path, new TextEncoder().encode(JSON.stringify(notes))));
+  };
+  const readRemote = async (): Promise<NotesFile> => {
+    const path = remotePath.notes(DOC);
+    return JSON.parse(new TextDecoder().decode(await unseal(key, path, store.files.get(path)!))) as NotesFile;
+  };
+
+  it('sends this computer’s marks up, scrambled', async () => {
+    await makeDocument(1);
+    await writeLocal(file([mark('a', { comment: 'secret comment', updated: 1 })]));
+    await syncLibrary(store, key, root, DESKTOP);
+    expect(Buffer.from(store.files.get(remotePath.notes(DOC))!).toString('latin1')).not.toContain('secret');
+    expect((await readRemote()).annotations.map((a) => a.id)).toEqual(['a']);
+  });
+
+  it('brings a phone’s marks down, and sends the merge back', async () => {
+    await makeDocument(1);
+    await writeLocal(file([mark('a', { updated: 1 })]));
+    await sealRemote(file([mark('b', { updated: 2 })], { removed: [{ id: 'a', updated: 3 }] }));
+    const changed: string[] = [];
+    await syncLibrary(store, key, root, DESKTOP, (docId) => changed.push(docId));
+    // The phone deleted "a" after it was last changed here: it stays deleted on both.
+    for (const merged of [await readLocal(), await readRemote()]) {
+      expect(merged.annotations.map((a) => a.id)).toEqual(['b']);
+      expect(merged.removed).toEqual([{ id: 'a', updated: 3 }]);
+    }
+    expect(changed).toEqual([DOC]);
+  });
+
+  it('keeps the later edit of a mark changed on both sides', async () => {
+    await makeDocument(1);
+    await writeLocal(file([mark('a', { comment: 'desktop', updated: 10 })]));
+    await sealRemote(file([mark('a', { comment: 'phone', updated: 20 })]));
+    await syncLibrary(store, key, root, DESKTOP);
+    expect((await readLocal()).annotations[0]!.comment).toBe('phone');
+  });
+
+  it('sends nothing, and tells no one, when both sides already agree', async () => {
+    await makeDocument(1);
+    await writeLocal(file([mark('a', { updated: 1 })]));
+    await syncLibrary(store, key, root, DESKTOP);
+    store.puts = [];
+    const changed: string[] = [];
+    await syncLibrary(store, key, root, DESKTOP, (docId) => changed.push(docId));
+    expect(store.puts).not.toContain(remotePath.notes(DOC));
+    expect(changed).toEqual([]);
+  });
+
+  it('takes notes from the store for a document that has none here yet', async () => {
+    await makeDocument(1);
+    await sealRemote(file([mark('b', { updated: 2 })], { notes: 'from the phone', notesUpdated: 2 }));
+    await syncLibrary(store, key, root, DESKTOP);
+    expect((await readLocal()).notes).toBe('from the phone');
+  });
+
+  it('writes no notes file where there are no notes on either side', async () => {
+    await makeDocument(1);
+    await syncLibrary(store, key, root, DESKTOP);
+    expect(store.files.has(remotePath.notes(DOC))).toBe(false);
+    await expect(readFile(join(root, DOC, 'notes.json'))).rejects.toThrow();
+  });
+
+  it('counts notes it cannot read, and leaves them alone', async () => {
+    await makeDocument(1);
+    await writeLocal(file([mark('a', { updated: 1 })]));
+    const path = remotePath.notes(DOC);
+    store.files.set(path, await seal(newSyncKey(), path, new TextEncoder().encode('{}')));
+    const before = store.files.get(path)!;
+    const report = await syncLibrary(store, key, root, DESKTOP);
+    expect(report.unreadable).toBe(1);
+    expect(store.files.get(path)).toBe(before);
+    expect((await readLocal()).annotations.map((a) => a.id)).toEqual(['a']);
   });
 });

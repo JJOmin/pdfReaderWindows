@@ -33,6 +33,8 @@ export interface SyncOptions {
   box: { encrypt(text: string): string; decrypt(text: string): string };
   /** Opens an address in the user's own browser. */
   openUrl(url: string): void;
+  /** A document's notes changed here because of a sync: one that is open should show them. */
+  onNotesChanged?(docId: string): void;
   dropboxKey?: string;
   dropboxHosts?: DropboxHosts;
   dropboxPort?: number;
@@ -185,7 +187,13 @@ export class SyncManager {
       const store = this.store(config, secrets);
       const key = parseSyncKey(secrets.key ?? '');
       if (!key) throw new Error('There is no sync key');
-      return await syncLibrary(store, key, this.options.libraryRoot, config.deviceId);
+      return await syncLibrary(
+        store,
+        key,
+        this.options.libraryRoot,
+        config.deviceId,
+        this.options.onNotesChanged,
+      );
     } finally {
       this.running = false;
     }

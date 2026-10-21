@@ -66,6 +66,12 @@ The manifest is sent last, and a manifest in the store with the same `updated` a
 the document is whole and nothing is sent again.
 `// shortcut: an upload that stops halfway starts again from the PDF, upgrade by listing what is there.`
 
+The document's notes are one more file, `<docId>/notes.json`, sealed like the others (added
+2026-10-21 with the phone's half, its ADR 3 and step S8b). A sync reads it, merges it per mark with
+the library's own (ADR 7 section 1), and writes the merge to whichever side lacks it. No logic runs
+in the store, so two devices that write at the same moment can lose one update, which the next sync
+merges again. A notes file that this key cannot open counts as "unreadable" and is left alone.
+
 ### 4. Places
 
 Unchanged from ADR 7 section 8: each device writes only its own `state/<device>.json`. A sync sends
