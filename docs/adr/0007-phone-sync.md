@@ -233,7 +233,9 @@ holds it.
 - That a real German paper, with hyphens across lines, gives the same words on both engines. The
   spike covered one English paper and the German and English `sample.pdf`, and it compared words
   split at spaces, not the segmenter's word-like segments.
-- That the Opus files play on the phone. _Measured on the desktop in step S3, 2026-10-21_
+- ~~That the Opus files play on the phone.~~ _Played on the owner's Galaxy S20 FE on 2026-10-21,
+  heard by the owner in the system player and by ExoPlayer in the phone app (Flutter PLAN 1.9 to
+  1.13)._ _Measured on the desktop in step S3, 2026-10-21_
   (`tests/e2e/opus.spec.ts`): WebCodecs in Electron 44 encodes at about 0.01 seconds per second of
   audio, with a reported pre-skip of 312, at 24.6 to 24.9 kbit/s for the Kokoro and Piper samples.
   Both the 24 kHz and the 22.05 kHz voice were resampled with `OfflineAudioContext`. Chromium's
