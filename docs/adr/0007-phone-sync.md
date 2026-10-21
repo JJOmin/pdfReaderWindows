@@ -130,8 +130,15 @@ The desktop listens only while **Phone sync** is switched on. It is off by defau
   the same way.
 - The address can also be typed, for networks that block multicast (guest Wi-Fi, some mesh routers).
 - Node's `dgram` and `https`, Dart's `RawDatagramSocket` and `HttpClient`. No packages for this.
-- The first time, Windows asks whether to let the app through the firewall. Allow it for private
-  networks only.
+- The first time, Windows asks whether to let the app through the firewall. _Changed by the owner
+  on 2026-10-21:_ allowing it on networks Windows marks **Public** is fine too. Windows marks many
+  home networks Public (the owner's is), and the rule "private networks only" would make phone sync
+  fail there for no gain. What protects the library is not the firewall but section 6: the server
+  is off until the user switches it on, pairing is answered only while the Phone dialog is open and
+  only after Accept, the phone checks the certificate against the code, and every request but
+  `hello` needs a paired token. On a network of strangers (a café, a hotel) a stranger can see the
+  announcement and the computer's name and can ask `GET /v1/hello`, nothing more. The dialog says
+  to switch phone sync off on such networks.
 
 ### 6. Pairing and trust
 
@@ -252,5 +259,5 @@ holds it.
   every packet out of one adapter (a Hyper-V adapter beside the Wi-Fi), so the desktop keeps one
   socket bound to each address. A listener must join the group on its interface by address: a
   membership on the default interface heard nothing. The owner's network is marked Public in
-  Windows, and the firewall rule Windows made for Electron allows it there; ADR 7 meant private
-  networks only.
+  Windows, and the firewall rule Windows made for Electron allows it there, which section 5 now
+  allows.
