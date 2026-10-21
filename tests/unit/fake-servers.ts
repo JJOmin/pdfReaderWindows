@@ -10,13 +10,18 @@ async function body(request: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function listen(handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>): Promise<Server> {
+function listen(
+  handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>,
+  where: { host?: string; port?: number } = {},
+): Promise<Server> {
   const server = createServer((req, res) => {
     handler(req, res).catch((error: unknown) => {
       res.writeHead(500).end(String(error));
     });
   });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
+  return new Promise((resolve) =>
+    server.listen(where.port ?? 0, where.host ?? '127.0.0.1', () => resolve(server)),
+  );
 }
 
 const origin = (server: Server): string => `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -33,15 +38,27 @@ export interface FakeNextcloud {
   close(): Promise<void>;
 }
 
-export async function fakeNextcloud(): Promise<FakeNextcloud> {
+/**
+ * `host`, `port` and `publicUrl` let a device on the network reach it, as the phone's tests do:
+ * the addresses it hands out must be the ones the phone typed. `approveAfterMs` plays the user.
+ */
+export interface FakeNextcloudOptions {
+  host?: string;
+  port?: number;
+  publicUrl?: string;
+  approveAfterMs?: number;
+}
+
+export async function fakeNextcloud(options: FakeNextcloudOptions = {}): Promise<FakeNextcloud> {
   const files = new Map<string, Buffer>();
   const folders = new Set<string>(['']);
   let approved = false;
   const prefix = '/remote.php/dav/files/alice/';
   const server = await listen(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
-    const base = origin(server);
+    const base = options.publicUrl ?? origin(server);
     if (url.pathname === '/index.php/login/v2' && req.method === 'POST') {
+      if (options.approveAfterMs !== undefined) setTimeout(() => (approved = true), options.approveAfterMs);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -103,9 +120,9 @@ export async function fakeNextcloud(): Promise<FakeNextcloud> {
       default:
         return void res.writeHead(405).end();
     }
-  });
+  }, options);
   return {
-    url: origin(server),
+    url: options.publicUrl ?? origin(server),
     files,
     folders,
     approve: () => void (approved = true),
