@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Api } from '../shared/types';
+import type { Api, NotesFile } from '../shared/types';
 
 // The renderer gets these calls and nothing else: no file system, no arbitrary IPC.
 const api: Api = {
@@ -35,6 +35,9 @@ const api: Api = {
     ipcRenderer.on('phone:changed', () => listener({ kind: 'changed' }));
   },
   phoneAnswer: (accept) => ipcRenderer.invoke('phone:answer', accept),
+  onNotesChanged: (listener) => {
+    ipcRenderer.on('notes:changed', (_event, notes: unknown) => listener(notes as NotesFile));
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

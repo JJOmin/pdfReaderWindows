@@ -16,7 +16,9 @@ import {
   PROTOCOL_VERSION,
 } from '../shared/pairing';
 import { parseDeviceState, parseManifest, type Manifest } from '../shared/phone-library';
-import type { PhoneServerStatus } from '../shared/types';
+import { mergeNotes } from '../shared/notes-merge';
+import { parseNotes } from '../shared/notes';
+import type { NotesFile, PhoneServerStatus } from '../shared/types';
 
 export const PHONE_PORT = 47613;
 /** Administratively scoped, so routers keep it on the local network. */
@@ -26,6 +28,8 @@ const ANNOUNCE_MS = 2000;
 const PAIR_TIMEOUT_MS = 60_000;
 const MAX_STATE_BYTES = 4096;
 const MAX_PAIR_BYTES = 1024;
+/** A document's marks and comments: far more than anyone writes by hand. */
+const MAX_NOTES_BYTES = 2 * 1024 * 1024;
 
 const hash = (text: string): string => createHash('sha256').update(text).digest('hex');
 
@@ -53,6 +57,8 @@ export interface PhoneServerOptions {
   askPair(phoneName: string): Promise<boolean>;
   /** The paired phones changed: a phone was paired. */
   onChange?(): void;
+  /** A phone sent notes for a document; they were merged into the library's copy. */
+  onNotes?(docId: string, merged: NotesFile): void;
   port?: number;
 }
 
@@ -347,6 +353,27 @@ export class PhoneServer {
       createReadStream(path).pipe(response);
       return;
     }
+    if (parsed.kind === 'getNotes') {
+      const notes = await this.readNotes(parsed.docId);
+      return notes ? json(response, 200, notes) : empty(response, 404);
+    }
+    if (parsed.kind === 'putNotes') {
+      const body = await readBody(request, MAX_NOTES_BYTES);
+      if (!body) return empty(response, 413);
+      let incoming: NotesFile | null;
+      try {
+        incoming = parseNotes(JSON.parse(body.toString('utf8')));
+      } catch {
+        incoming = null;
+      }
+      if (!incoming) return empty(response, 400);
+      const held = await this.readNotes(parsed.docId);
+      const merged = held ? mergeNotes(held, incoming) : incoming;
+      await mkdir(folder, { recursive: true });
+      await writeFile(join(folder, 'notes.json'), JSON.stringify(merged, null, 2));
+      this.options.onNotes?.(parsed.docId, merged);
+      return json(response, 200, merged);
+    }
     if (parsed.kind === 'states') {
       const states = [];
       const dir = join(folder, 'state');
@@ -374,6 +401,16 @@ export class PhoneServer {
     await mkdir(join(folder, 'state'), { recursive: true });
     await writeFile(join(folder, 'state', `${phone.device}.json`), JSON.stringify(state));
     return empty(response, 204);
+  }
+
+  private async readNotes(docId: string): Promise<NotesFile | null> {
+    try {
+      return parseNotes(
+        JSON.parse(await readFile(join(this.options.libraryRoot, docId, 'notes.json'), 'utf8')),
+      );
+    } catch {
+      return null;
+    }
   }
 
   private async manifest(docId: string): Promise<Manifest | null> {

@@ -72,6 +72,8 @@ describe('parseRequest', () => {
     });
     expect(parseRequest('GET', `/v1/doc/${DOC}/audio/${KEY}.opus`)?.kind).toBe('file');
     expect(parseRequest('GET', `/v1/doc/${DOC}/state`)).toEqual({ kind: 'states', docId: DOC });
+    expect(parseRequest('GET', `/v1/doc/${DOC}/notes`)).toEqual({ kind: 'getNotes', docId: DOC });
+    expect(parseRequest('PUT', `/v1/doc/${DOC}/notes`)).toEqual({ kind: 'putNotes', docId: DOC });
     expect(parseRequest('PUT', `/v1/doc/${DOC}/state/${DEVICE}`)).toEqual({
       kind: 'putState',
       docId: DOC,
@@ -93,6 +95,9 @@ describe('parseRequest', () => {
       ['GET', `/v1/doc/${DOC}/state/${DEVICE}`],
       ['PUT', `/v1/doc/${DOC}/state/${DEVICE}x`],
       ['GET', `/v1/doc/${DOC}/notes.json`],
+      ['POST', `/v1/doc/${DOC}/notes`],
+      ['DELETE', `/v1/doc/${DOC}/notes`],
+      ['PUT', `/v1/doc/${'g'.repeat(64)}/notes`],
       ['DELETE', `/v1/doc/${DOC}/document.pdf`],
     ];
     for (const [method, url] of bad) expect(parseRequest(method, url), `${method} ${url}`).toBeNull();

@@ -1,4 +1,7 @@
-import { HIGHLIGHT_COLORS, MARK_KINDS, type Annotation, type NotesFile } from './types.ts';
+import { HIGHLIGHT_COLORS, MARK_KINDS, type Annotation, type NotesFile, type Removal } from './types.ts';
+
+const time = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
 export const emptyNotes = (): NotesFile => ({ version: 1, notes: '', annotations: [] });
 
@@ -26,6 +29,7 @@ export function parseNotes(value: unknown): NotesFile | null {
     ) {
       return null;
     }
+    const updated = time(a.updated);
     annotations.push({
       id: a.id,
       page: a.page!,
@@ -37,9 +41,25 @@ export function parseNotes(value: unknown): NotesFile | null {
       color: a.color!,
       comment: a.comment,
       created: typeof a.created === 'string' ? a.created : '',
+      ...(updated === undefined ? {} : { updated }),
     });
   }
-  return { version: 1, notes: file.notes, annotations };
+  // Entries that are not valid are dropped rather than refusing the file: losing a removal costs
+  // a mark coming back, losing the file costs every mark.
+  const removed: Removal[] = [];
+  for (const r of Array.isArray(file.removed) ? (file.removed as unknown[]) : []) {
+    const entry = r as Partial<Removal> | null;
+    const updated = time(entry?.updated);
+    if (typeof entry?.id === 'string' && updated !== undefined) removed.push({ id: entry.id, updated });
+  }
+  const notesUpdated = time(file.notesUpdated);
+  return {
+    version: 1,
+    notes: file.notes,
+    annotations,
+    ...(notesUpdated === undefined ? {} : { notesUpdated }),
+    ...(removed.length === 0 ? {} : { removed }),
+  };
 }
 
 /**

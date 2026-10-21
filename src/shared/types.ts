@@ -125,6 +125,8 @@ export interface Annotation {
   color: HighlightColor;
   comment: string;
   created: string;
+  /** When it was last changed, in milliseconds. Set when notes are saved; older files have none. */
+  updated?: number;
 }
 
 /** A mark with its place on the page, ready to be written into a PDF. */
@@ -137,10 +139,19 @@ export interface ExportMark {
   quads: number[][];
 }
 
+/** A mark that was deleted, kept so that another device does not bring it back (ADR 7 section 1). */
+export interface Removal {
+  id: string;
+  updated: number;
+}
+
 export interface NotesFile {
   version: 1;
   notes: string;
   annotations: Annotation[];
+  /** When the general notes were last changed. */
+  notesUpdated?: number;
+  removed?: Removal[];
 }
 
 /** Where the user was in a document, so that it opens there again. */
@@ -262,4 +273,6 @@ export interface Api {
   /** A phone asks to pair (answer with `phoneAnswer`), or the paired phones changed. */
   onPhoneEvent(listener: (event: PhoneEvent) => void): void;
   phoneAnswer(accept: boolean): Promise<void>;
+  /** A phone's marks were merged into the open document's notes: show these. */
+  onNotesChanged(listener: (notes: NotesFile) => void): void;
 }

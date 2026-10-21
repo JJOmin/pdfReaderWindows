@@ -13,6 +13,9 @@ import {
   type DeviceState,
   type Manifest,
 } from '../shared/phone-library';
+import { mergeNotes } from '../shared/notes-merge';
+import { parseNotes } from '../shared/notes';
+import type { NotesFile } from '../shared/types';
 import { MAX_REQUEST_TEXT } from '../shared/requests';
 
 export const sha256 = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
@@ -170,5 +173,29 @@ export class PhoneLibrary {
     const sentences = (await this.pageIndex(docId, sentence.page))?.sentences ?? [];
     const found = sentences.findIndex((s) => s.key === sentence.key);
     return found >= 0 ? found : sentence.index;
+  }
+
+  private notesPath(docId: string): string {
+    return join(this.root, docId, 'notes.json');
+  }
+
+  /** The document's notes as the library holds them: what phones read and write. */
+  async readNotes(docId: string): Promise<NotesFile | null> {
+    try {
+      return parseNotes(JSON.parse(await readFile(this.notesPath(docId), 'utf8')));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Merges notes into the library's copy and returns the result. Written only where it changed. */
+  async mergeNotesInto(docId: string, incoming: NotesFile): Promise<NotesFile> {
+    const held = await this.readNotes(docId);
+    const merged = held ? mergeNotes(held, incoming) : incoming;
+    if (!held || JSON.stringify(held) !== JSON.stringify(merged)) {
+      await mkdir(join(this.root, docId), { recursive: true });
+      await writeFile(this.notesPath(docId), JSON.stringify(merged, null, 2));
+    }
+    return merged;
   }
 }

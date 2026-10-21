@@ -4,7 +4,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { basename, dirname, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseNotes } from '../shared/notes';
+import { emptyNotes, parseNotes } from '../shared/notes';
+import { stampChanges } from '../shared/notes-merge';
 import { parseSynthRequest } from '../shared/requests';
 import {
   normalizeProgress,
@@ -84,6 +85,13 @@ const phones = new PhoneServer({
       BrowserWindow.getAllWindows()[0]?.webContents.send('phone:pair', name);
     }),
   onChange: () => BrowserWindow.getAllWindows()[0]?.webContents.send('phone:changed'),
+  // A phone's marks reach the open document at once; for another one they wait in the library
+  // until it is opened.
+  onNotes: (docId, merged) => {
+    if (currentDoc?.docId !== docId || !currentPdf) return;
+    void writeFile(`${currentPdf}.notes.json`, JSON.stringify(merged, null, 2));
+    BrowserWindow.getAllWindows()[0]?.webContents.send('notes:changed', merged);
+  },
 });
 /** Names the current opening, so that a late message about the previous document is ignored. */
 let currentId = 0;
@@ -149,14 +157,37 @@ async function offerFor(docId: string, ownUpdated: number | undefined): Promise<
   return { from: state.name, page: state.page, offset: state.offset, sentence };
 }
 
-async function loadPdf(path: string): Promise<OpenedPdf> {
-  const data = new Uint8Array(await readFile(path));
-  let notes: NotesFile | null = null;
+const readNotesFile = async (pdfPath: string): Promise<NotesFile | null> => {
   try {
-    notes = parseNotes(JSON.parse(await readFile(`${path}.notes.json`, 'utf8')));
+    return parseNotes(JSON.parse(await readFile(`${pdfPath}.notes.json`, 'utf8')));
   } catch {
     // No notes yet, or a file that is not ours: start empty.
+    return null;
   }
+};
+
+/**
+ * The notes of a prepared document are kept where phones read them as well as next to the PDF
+ * (ADR 7 section 1): both are merged per mark, and the file next to the PDF is brought up to date.
+ * Returns the notes the window should show.
+ */
+async function mirrorNotes(doc: LibraryDocument, fileNotes: NotesFile | null): Promise<NotesFile | null> {
+  if (!(await library.isPrepared(doc.docId))) return fileNotes;
+  const merged = await library.mergeNotesInto(doc.docId, fileNotes ?? emptyNotes());
+  // Nothing to say, and nothing from a phone: an untouched document leaves no file behind.
+  if (isBlank(merged)) return fileNotes;
+  if (!fileNotes || JSON.stringify(fileNotes) !== JSON.stringify(merged)) {
+    await writeFile(`${doc.path}.notes.json`, JSON.stringify(merged, null, 2));
+  }
+  return merged;
+}
+
+const isBlank = (notes: NotesFile): boolean =>
+  notes.annotations.length === 0 && notes.notes === '' && !notes.removed;
+
+async function loadPdf(path: string): Promise<OpenedPdf> {
+  const data = new Uint8Array(await readFile(path));
+  const notes = await readNotesFile(path);
   const { documents } = await progressStore();
   currentPdf = path;
   currentDoc = { docId: sha256(data), name: basename(path), path };
@@ -166,7 +197,7 @@ async function loadPdf(path: string): Promise<OpenedPdf> {
     id: currentId,
     name: basename(path),
     data,
-    notes,
+    notes: await mirrorNotes(currentDoc, notes),
     progress: normalizeProgress(saved),
     offer: await offerFor(currentDoc.docId, saved?.updated),
   };
@@ -212,7 +243,13 @@ function registerIpc(): void {
   ipcMain.handle('notes:save', async (_event, value: unknown) => {
     const notes = parseNotes(value);
     if (!currentPdf || !notes) throw new Error('No open PDF or invalid notes');
-    await writeFile(`${currentPdf}.notes.json`, JSON.stringify(notes, null, 2));
+    // Changes are stamped here by comparing with what was stored, so that the sidebar needs no
+    // knowledge of timestamps or removals (ADR 7 section 1).
+    const stamped = stampChanges(await readNotesFile(currentPdf), notes, Date.now());
+    await writeFile(`${currentPdf}.notes.json`, JSON.stringify(stamped, null, 2));
+    if (currentDoc && (await library.isPrepared(currentDoc.docId))) {
+      await library.mergeNotesInto(currentDoc.docId, stamped);
+    }
   });
   ipcMain.handle('notes:export', async (_event, markdown: unknown) => {
     if (!currentPdf || typeof markdown !== 'string') return null;
@@ -241,8 +278,17 @@ function registerIpc(): void {
   ipcMain.handle('library:audio', (_event, id: unknown, text: unknown, audio: unknown) =>
     library.addAudio(libraryDoc(id), text, audio),
   );
-  ipcMain.handle('library:page', (_event, id: unknown, page: unknown, pages: unknown, sentences: unknown) =>
-    library.addPage(libraryDoc(id), page, pages, sentences),
+  ipcMain.handle(
+    'library:page',
+    async (_event, id: unknown, page: unknown, pages: unknown, sentences: unknown) => {
+      const doc = libraryDoc(id);
+      await library.addPage(doc, page, pages, sentences);
+      // The document is whole now: marks made before are put where phones read them.
+      if (page === pages) {
+        const merged = await mirrorNotes(doc, await readNotesFile(doc.path));
+        if (merged) BrowserWindow.getAllWindows()[0]?.webContents.send('notes:changed', merged);
+      }
+    },
   );
   ipcMain.handle('sync:status', () => sync.getStatus());
   ipcMain.handle('sync:connect', (_event, backend: unknown, server: unknown) =>

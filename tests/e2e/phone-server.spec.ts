@@ -1,7 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { createSocket } from 'node:dgram';
-import { copyFileSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { request } from 'node:https';
 import type { TLSSocket } from 'node:tls';
 import { networkInterfaces, tmpdir } from 'node:os';
@@ -199,6 +199,76 @@ test('a phone writes its own place and no other device’s', async () => {
   expect((await call('PUT', `/v1/doc/${docId}/state/${other}`, { token, body: forged })).status).toBe(403);
   const states = await call('GET', `/v1/doc/${docId}/state`, { token });
   expect(JSON.parse(states.body.toString())).toEqual([state]);
+});
+
+test('a phone’s marks are merged per mark and reach the open document', async () => {
+  const notesFile = join(dir, 'sample.pdf.notes.json');
+  const mark = {
+    id: '3f2b8c1e-0000-4000-8000-0000000000aa',
+    page: 1,
+    // Offsets of the phone's raw string: the desktop finds the mark again by its text.
+    start: 3,
+    end: 14,
+    text: 'Dieser Text',
+    quote: 'Dieser Text',
+    kind: 'highlight',
+    color: 'green',
+    comment: 'phone',
+    created: '2026-10-21T00:00:00.000Z',
+    updated: 1000,
+  };
+  const put = (body: unknown) => call('PUT', `/v1/doc/${docId}/notes`, { token, body });
+  const read = async () =>
+    JSON.parse((await call('GET', `/v1/doc/${docId}/notes`, { token })).body.toString());
+
+  // The phone sends a mark and general notes: the open document shows both, and the answer is the merge.
+  const sent = await put({ version: 1, notes: 'from the phone', notesUpdated: 1000, annotations: [mark] });
+  expect(sent.status).toBe(200);
+  await expect(page.locator('#annotations blockquote')).toHaveText('Dieser Text');
+  await expect(page.locator('#annotations textarea')).toHaveValue('phone');
+  await expect(page.locator('#notes')).toHaveValue('from the phone');
+  await expect.poll(() => existsSync(notesFile)).toBe(true);
+  expect(JSON.parse(readFileSync(notesFile, 'utf8')).annotations[0]).toMatchObject({
+    id: mark.id,
+    updated: 1000,
+  });
+
+  // An edit in the window is stamped, and a phone's older edit of the same mark does not undo it.
+  await page.fill('#annotations textarea', 'desktop');
+  await expect.poll(async () => (await read()).annotations[0]?.comment).toBe('desktop');
+  const stamped = (await read()).annotations[0].updated as number;
+  expect(stamped).toBeGreaterThan(1000);
+  const older = await put({
+    version: 1,
+    notes: '',
+    annotations: [{ ...mark, comment: 'phone, older', updated: 2000 }],
+  });
+  expect(JSON.parse(older.body.toString()).annotations[0].comment).toBe('desktop');
+  expect((await read()).annotations[0].comment).toBe('desktop');
+
+  // A mark the phone made on its own is added beside it.
+  const second = {
+    ...mark,
+    id: '3f2b8c1e-0000-4000-8000-0000000000bb',
+    text: 'Text prüft',
+    quote: 'Text prüft',
+    comment: '',
+  };
+  await put({ version: 1, notes: '', annotations: [{ ...second, updated: stamped + 1 }] });
+  await expect(page.locator('#annotations li')).toHaveCount(2);
+
+  // Deleted in the window: it is a removal for the phones, and stays deleted if a phone still has it.
+  await page.locator('#annotations li', { hasText: 'Text prüft' }).locator('.delete').click();
+  await expect(page.locator('#annotations li')).toHaveCount(1);
+  await expect.poll(async () => (await read()).removed?.[0]?.id).toBe(second.id);
+  const again = await put({ version: 1, notes: '', annotations: [{ ...second, updated: 1500 }] });
+  expect(JSON.parse(again.body.toString()).annotations.map((a: { id: string }) => a.id)).toEqual([mark.id]);
+  await expect(page.locator('#annotations li')).toHaveCount(1);
+
+  // Bad input is refused and changes nothing.
+  expect((await put({ version: 2 })).status).toBe(400);
+  expect((await call('PUT', `/v1/doc/${docId}/notes`, { token: 'f'.repeat(64), body: {} })).status).toBe(401);
+  expect(pageErrors).toEqual([]);
 });
 
 test('Remove stops a paired phone at once', async () => {

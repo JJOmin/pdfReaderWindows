@@ -49,13 +49,16 @@ export type PhoneRequest =
   | { kind: 'library' }
   | { kind: 'file'; docId: string; file: LibraryFile }
   | { kind: 'states'; docId: string }
-  | { kind: 'putState'; docId: string; device: string };
+  | { kind: 'putState'; docId: string; device: string }
+  | { kind: 'getNotes'; docId: string }
+  | { kind: 'putNotes'; docId: string };
 
 const FILE = new RegExp(
   `^/v1/doc/(${DOC_ID})/(document\\.pdf|manifest\\.json|pages/[1-9][0-9]{0,4}\\.json|audio/[0-9a-f]{40}\\.opus)$`,
   'u',
 );
 const STATES = new RegExp(`^/v1/doc/(${DOC_ID})/state$`, 'u');
+const NOTES = new RegExp(`^/v1/doc/(${DOC_ID})/notes$`, 'u');
 const PUT_STATE = new RegExp(`^/v1/doc/(${DOC_ID})/state/([0-9a-f]{32})$`, 'u');
 
 /** What a request asks for, or null for anything else, which is answered with 404. */
@@ -68,10 +71,14 @@ export function parseRequest(method: string, url: string): PhoneRequest | null {
     if (file) return { kind: 'file', docId: file[1]!, file: file[2] as LibraryFile };
     const states = STATES.exec(url);
     if (states) return { kind: 'states', docId: states[1]! };
+    const notes = NOTES.exec(url);
+    if (notes) return { kind: 'getNotes', docId: notes[1]! };
   }
   if (method === 'PUT') {
     const put = PUT_STATE.exec(url);
     if (put) return { kind: 'putState', docId: put[1]!, device: put[2]! };
+    const notes = NOTES.exec(url);
+    if (notes) return { kind: 'putNotes', docId: notes[1]! };
   }
   return null;
 }

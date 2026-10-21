@@ -314,6 +314,12 @@ function offerPlace(offer: PlaceOffer | null): void {
 }
 $('#place-dismiss').addEventListener('click', () => ($('#place-offer').hidden = true));
 
+/** A phone's marks were merged into this document's notes: show them. */
+api.onNotesChanged((file) => {
+  notes.load($('#title').textContent, file);
+  notes.paint();
+});
+
 const open = async (): Promise<void> => show(await api.openPdf());
 const playPause = (): void => {
   if (pdf.pageCount > 0) reader.toggle(resume ?? { page: view.currentPage, index: 0 });
