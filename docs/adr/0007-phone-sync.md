@@ -233,6 +233,9 @@ holds it.
 - That a real German paper, with hyphens across lines, gives the same words on both engines. The
   spike covered one English paper and the German and English `sample.pdf`, and it compared words
   split at spaces, not the segmenter's word-like segments.
-- That WebCodecs' Opus encoder in Electron 44 runs faster than real time, and that its output plays
-  on the phone.
+- That the Opus files play on the phone. _Measured on the desktop in step S3, 2026-10-21_
+  (`tests/e2e/opus.spec.ts`): WebCodecs in Electron 44 encodes at about 0.01 seconds per second of
+  audio, with a reported pre-skip of 312, at 24.6 to 24.9 kbit/s for the Kokoro and Piper samples.
+  Both the 24 kHz and the 22.05 kHz voice were resampled with `OfflineAudioContext`. Chromium's
+  decoder and libsndfile 1.2.2 (libogg and libopus) both read the files at the exact length.
 - That the owner's router passes multicast between Wi-Fi and the desktop's network port.
