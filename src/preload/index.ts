@@ -17,6 +17,13 @@ const api: Api = {
   addPhoneAudio: (id, text, audio) => ipcRenderer.invoke('library:audio', id, text, audio),
   addPhonePage: (id, page, pages, sentences) =>
     ipcRenderer.invoke('library:page', id, page, pages, sentences),
+  syncStatus: () => ipcRenderer.invoke('sync:status'),
+  syncConnect: (backend, server) => ipcRenderer.invoke('sync:connect', backend, server),
+  syncCancel: () => ipcRenderer.invoke('sync:cancel'),
+  syncDisconnect: () => ipcRenderer.invoke('sync:disconnect'),
+  syncKey: () => ipcRenderer.invoke('sync:key'),
+  syncSetKey: (key) => ipcRenderer.invoke('sync:set-key', key),
+  syncRun: () => ipcRenderer.invoke('sync:run'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

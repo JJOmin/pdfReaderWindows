@@ -325,11 +325,33 @@ dialog p {
   }
 }
 
-#phone-actions {
+#phone-actions,
+.sync-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  margin: 8px 0;
 }
 
+.sync-row[hidden],
+#sync-connect[hidden] {
+  display: none;
+}
+
+#sync-server,
+#sync-key {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 4px 0;
+}
+
+#sync-key {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8em;
+}
+
+#sync-account.error,
 #phone-status.error,
 #phone-progress.error,
 #status.error {

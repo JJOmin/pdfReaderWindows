@@ -106,3 +106,31 @@ test('Add this document writes the phone library', async () => {
   );
   expect(pageErrors).toEqual([]);
 });
+
+// ADR 8: the sync part of the dialog. Signing in itself needs a browser and is covered by the unit
+// tests against stand-ins for the two services.
+test('the sync section starts signed out and checks what is typed', async () => {
+  await page.click('#phone button:has-text("Close")');
+  await page.click('#open-phone');
+  await expect(page.locator('#sync-account')).toHaveText('Not signed in.');
+  await expect(page.locator('#sync-connected')).toBeHidden();
+  // This build has no Dropbox app key unless PDFREADER_DROPBOX_KEY is set.
+  await expect(page.locator('#sync-dropbox')).toBeDisabled();
+
+  await page.fill('#sync-server', 'http://cloud.example.com');
+  await page.click('#sync-nextcloud');
+  await expect(page.locator('#sync-account')).toContainText('address of your Nextcloud');
+  await expect(page.locator('#sync-nextcloud')).toBeEnabled();
+
+  // The key exists from the first look, and can be replaced by one from another device.
+  await page.locator('#sync-key-box summary').click();
+  await expect(page.locator('#sync-key')).toHaveValue(/^([0-9a-f]{8}-){7}[0-9a-f]{8}$/);
+  const other = '0123456789abcdef'.repeat(4);
+  await page.fill('#sync-key', other);
+  await page.click('#sync-key-save');
+  await expect(page.locator('#sync-account')).toContainText('sync key was changed');
+  await page.fill('#sync-key', 'nonsense');
+  await page.click('#sync-key-save');
+  await expect(page.locator('#sync-account')).toContainText('64 hexadecimal');
+  expect(pageErrors).toEqual([]);
+});

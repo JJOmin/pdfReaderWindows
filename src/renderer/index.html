@@ -142,8 +142,39 @@
         <div id="phone-actions">
           <button type="button" id="phone-add">Add this document</button>
           <button type="button" id="phone-cancel" hidden>Cancel</button>
-          <button>Close</button>
         </div>
+
+        <h3>Sync between devices</h3>
+        <p>
+          Keeps the prepared documents and your place in your own Nextcloud or Dropbox. Everything is
+          encrypted here first, so the service sees only scrambled files.
+        </p>
+        <p id="sync-account" role="status"></p>
+        <div id="sync-connect">
+          <label>
+            Nextcloud address
+            <input id="sync-server" type="url" placeholder="https://cloud.example.com" autocomplete="off" />
+          </label>
+          <div class="sync-row">
+            <button type="button" id="sync-nextcloud">Sign in to Nextcloud</button>
+            <button type="button" id="sync-dropbox">Sign in to Dropbox</button>
+            <button type="button" id="sync-cancel" hidden>Cancel sign-in</button>
+          </div>
+        </div>
+        <div id="sync-connected" class="sync-row" hidden>
+          <button type="button" id="sync-now">Sync now</button>
+          <button type="button" id="sync-disconnect">Sign out</button>
+        </div>
+        <details id="sync-key-box">
+          <summary>Sync key</summary>
+          <p>
+            The key that scrambles the files. Enter the same key on every device. Keep a copy: without it the
+            files in the store cannot be read.
+          </p>
+          <input id="sync-key" type="text" spellcheck="false" autocomplete="off" aria-label="Sync key" />
+          <button type="button" id="sync-key-save">Use this key</button>
+        </details>
+        <button>Close</button>
       </form>
     </dialog>
 

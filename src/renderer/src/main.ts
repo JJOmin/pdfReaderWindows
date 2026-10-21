@@ -8,6 +8,7 @@ import { prepareForPhone } from './phone';
 import { Reader } from './reader';
 import { ReadingView } from './reading-view';
 import { Search } from './search';
+import { setUpSync } from './sync';
 import type { TextView } from './view';
 import { renderVoices, SAMPLES } from './voices';
 
@@ -419,9 +420,11 @@ const showPreparing = (): void => {
   $('#phone-cancel').hidden = preparing === undefined;
   $('#phone-syncing').toggleAttribute('hidden', preparing === undefined);
 };
+const phoneSync = setUpSync(api, phoneStatus);
 $('#open-phone').addEventListener('click', () => {
   showPreparing();
   $<HTMLDialogElement>('#phone').showModal();
+  void phoneSync.open();
 });
 $('#phone-cancel').addEventListener('click', () => preparing?.abort());
 $('#phone-add').addEventListener('click', () => {
@@ -447,8 +450,10 @@ $('#phone-add').addEventListener('click', () => {
     },
     job.signal,
   )
-    .then(({ cancelled, rendered }) => {
+    .then(async ({ cancelled, rendered }) => {
       phoneStatus(cancelled ? 'Phone: cancelled.' : `Phone: ${name} is ready, ${rendered} sentences.`);
+      // A prepared document goes to the store at once, when one is connected.
+      if (!cancelled) await phoneSync.run();
       phoneProgressTimer = setTimeout(() => ($('#phone-progress').hidden = true), PHONE_RESULT_MS);
     })
     .catch((error: unknown) =>

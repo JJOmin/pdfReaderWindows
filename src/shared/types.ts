@@ -1,4 +1,5 @@
 import type { PreparedSentence } from './phone-library.ts';
+import type { Backend } from './sync-config.ts';
 
 export type Lang = 'en' | 'de';
 export type Role = 'main' | 'quote' | 'heading';
@@ -163,6 +164,24 @@ export interface OpenedPdf {
   progress: Progress | null;
 }
 
+/** Where the phone library is kept in sync (ADR 8). */
+export interface SyncStatus {
+  backend: Backend;
+  /** Who is signed in: `user at server` for Nextcloud, empty for Dropbox and when nothing is connected. */
+  account: string;
+  /** False when this build has no Dropbox app key. */
+  dropboxAvailable: boolean;
+}
+
+export interface SyncReport {
+  /** Documents in the phone library. */
+  documents: number;
+  /** Of those, how many were sent now. The rest were already in the store. */
+  uploaded: number;
+  /** Files from other devices that this key cannot open. */
+  unreadable: number;
+}
+
 /** The API the preload script exposes to the renderer as `window.api`. */
 export interface Api {
   openPdf(): Promise<OpenedPdf | null>;
@@ -189,4 +208,20 @@ export interface Api {
   addPhoneAudio(id: number, text: string, audio: Uint8Array): Promise<void>;
   /** Writes a page's index once its audio is stored. The last page writes the PDF and the manifest. */
   addPhonePage(id: number, page: number, pages: number, sentences: PreparedSentence[]): Promise<void>;
+  syncStatus(): Promise<SyncStatus>;
+  /**
+   * Signs in to Nextcloud (with the server's address) or Dropbox in the system browser. Resolves
+   * when the user has approved, and rejects when they cancel or it times out.
+   */
+  syncConnect(backend: 'nextcloud' | 'dropbox', server?: string): Promise<SyncStatus>;
+  /** Stops a sign-in that is waiting for the browser. */
+  syncCancel(): Promise<void>;
+  /** Forgets the sign-in. The files in the store stay where they are. */
+  syncDisconnect(): Promise<SyncStatus>;
+  /** The key that encrypts the store, for entering on another device. Made on first use. */
+  syncKey(): Promise<string>;
+  /** Replaces the key with one from another device. Returns the key as stored. */
+  syncSetKey(key: string): Promise<string>;
+  /** Sends the phone library to the store and fetches the other devices' places. */
+  syncRun(): Promise<SyncReport>;
 }

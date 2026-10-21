@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, safeStorage, shell } from 'electron';
 import { existsSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join, normalize, resolve, sep } from 'node:path';
@@ -16,6 +16,7 @@ import type { NotesFile, OpenedPdf, Settings, SynthRequest } from '../shared/typ
 import { annotate, parseMarks } from './annotate';
 import { PhoneLibrary, sha256, type LibraryDocument } from './library';
 import { resourcePaths } from './resources';
+import { SyncManager } from './sync/manager';
 import { Tts } from './tts';
 
 const RENDERER_DIR = join(import.meta.dirname, '../renderer');
@@ -47,7 +48,23 @@ const tts = new Tts(modelsDir, {
 let currentPdf: string | undefined;
 /** The same PDF as the phone library names it, by the hash of the bytes that were opened. */
 let currentDoc: LibraryDocument | undefined;
-const library = new PhoneLibrary(join(app.getPath('userData'), 'phone-library'));
+const libraryRoot = join(app.getPath('userData'), 'phone-library');
+const library = new PhoneLibrary(libraryRoot);
+const sync = new SyncManager({
+  configPath: join(app.getPath('userData'), 'sync.json'),
+  libraryRoot,
+  box: {
+    encrypt: (text) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('This system cannot keep secrets safely');
+      return safeStorage.encryptString(text).toString('base64');
+    },
+    decrypt: (text) => safeStorage.decryptString(Buffer.from(text, 'base64')),
+  },
+  // Only addresses the sync code built itself are opened, and only as web pages.
+  openUrl: (url) => {
+    if (/^https?:\/\//u.test(url)) void shell.openExternal(url);
+  },
+});
 /** Names the current opening, so that a late message about the previous document is ignored. */
 let currentId = 0;
 
@@ -167,6 +184,15 @@ function registerIpc(): void {
   ipcMain.handle('library:page', (_event, id: unknown, page: unknown, pages: unknown, sentences: unknown) =>
     library.addPage(libraryDoc(id), page, pages, sentences),
   );
+  ipcMain.handle('sync:status', () => sync.getStatus());
+  ipcMain.handle('sync:connect', (_event, backend: unknown, server: unknown) =>
+    sync.connect(backend, server),
+  );
+  ipcMain.handle('sync:cancel', () => sync.cancel());
+  ipcMain.handle('sync:disconnect', () => sync.disconnect());
+  ipcMain.handle('sync:key', () => sync.key());
+  ipcMain.handle('sync:set-key', (_event, key: unknown) => sync.setKey(key));
+  ipcMain.handle('sync:run', () => sync.run());
   ipcMain.handle('tts:voices', () => tts.voices());
   // Whatever the renderer sends is checked here: it is a sandboxed page, not trusted code.
   const request = (value: unknown): SynthRequest => {
