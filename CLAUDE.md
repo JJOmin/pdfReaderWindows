@@ -1,7 +1,8 @@
 # PDF Reader
 
 A local Electron app that shows PDFs, lets the user highlight and comment, and reads the text
-aloud while highlighting the spoken sentence and word. German and English. Nothing leaves the PC.
+aloud while highlighting the spoken sentence and word. German and English. No cloud: the text and
+the voices stay on the user's own devices.
 
 How we work is in [docs/WORKFLOW.md](docs/WORKFLOW.md). What is built and what is next is in
 [docs/SPEC.md](docs/SPEC.md). Why the big decisions were made is in [docs/adr/](docs/adr/).
@@ -56,7 +57,9 @@ second coordinate system, and do not add a feature to one view only.
 - New logic goes in `src/shared/` with a unit test. A bug gets a failing test before the fix.
 - The renderer is sandboxed. It never gets file paths or Node. New capabilities go through
   `Api`, and the main process validates everything it receives.
-- Everything runs offline. No network calls at runtime.
+- No internet at runtime: no cloud voices, no external models or LLMs, no downloads. Speech is
+  made on the user's own machine. The one network use is phone sync on the local network
+  (ADR 7): only with phones the user paired, and only while sync is switched on.
 - Comments explain why, not what. A known limit is marked `// shortcut: <limit>, <when to upgrade>`.
 - Do not claim something works without running it. For speech and highlighting that means e2e.
 - Shell heredocs halve backslashes here. Edit files that contain regular expressions with the

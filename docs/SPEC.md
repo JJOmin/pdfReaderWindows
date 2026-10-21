@@ -4,7 +4,8 @@
 
 A clean PDF reader for reviewing papers and taking notes, whose main feature is a read-aloud
 voice that sounds good and shows where it is: the spoken sentence is tinted and the spoken word is
-marked. German and English. Everything runs on the local PC.
+marked. German and English. Everything runs on the local PC. A paired phone on the same network
+can fetch prepared audio and the reading place (planned, ADR 7).
 
 ## What works today (v0.2)
 
@@ -146,6 +147,23 @@ These are the honest gaps, in rough order of how much they hurt.
       slider re-renders on demand, at about half real time.
     - How it reads numbers, abbreviations and formulas was not checked.
     - The helper script is found next to the app's files; a packaged installer does not carry it.
+
+## Next: phone sync
+
+Designed in [ADR 7](adr/0007-phone-sync.md), accepted 2026-10-21. The phone's steps are M5 in
+`../pdfreader_flutter/docs/PLAN.md`. Step S1 is that plan's step 5.1, the sentence match spike, and
+it comes first: if PDF.js and PDFium sentences rarely match, the rest changes. The phone has no
+voice of its own for now, so it can read nothing until S4 has prepared a library. S2 to S4 come
+before the phone's playback steps. S5 and S6 come after them.
+
+| #   | Step                                                                                                                                                                                                                                                    | Done when                                                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1  | The match spike, Flutter PLAN 5.1.                                                                                                                                                                                                                      | Recorded in Flutter ADR 2. About 98 % or more on a real paper, or a decision by the owner.                                                                                                                                                  |
+| S2  | `src/shared/phone-library.ts`: the sync key's normalisation (hashing left to the caller, as in `requestKey`), the manifest, page index and state types with their parse functions, and picking the newest state.                                        | Unit tests pass, including NFKC forms, line-break whitespace and a state body that is not valid.                                                                                                                                            |
+| S3  | `src/shared/ogg.ts`: Opus packets into Ogg pages (OpusHead, OpusTags, granule positions, CRC).                                                                                                                                                          | Unit tests pass, the CRC included. e2e: a sentence encoded in the renderer with `AudioEncoder` and decoded again with `decodeAudioData` is as long as the original within 20 ms.                                                            |
+| S4  | **Prepare for phone**: a Phone sync dialog with "Add this document". It renders every sentence at speed 1.0 with the chosen voices through `prerender.ts`, encodes it as Opus and writes the library folder through a new `Api` method checked in main. | e2e on the fixture: the folder holds the PDF, the manifest, one `.opus` file and one index entry per distinct sentence, and every word's timing lies within its sentence's duration.                                                        |
+| S5  | The server: the certificate (own DER writer, ADR 7 section 6), the UDP announcement, pairing with Accept, the requests of section 7, and the paired phones with Remove. Off by default.                                                                 | Unit tests for the code derivation and request checks. e2e with a Node test client: it finds the app by UDP, a wrong code fails, pairing works after Accept, the fixture's files download byte for byte, and an unknown token gets nothing. |
+| S6  | The place: the desktop writes its own state for library documents and, on open, offers a newer place from a phone.                                                                                                                                      | e2e: the test client sends a state at page 2, and reopening the fixture offers page 2.                                                                                                                                                      |
 
 ## Backlog
 
