@@ -37,7 +37,7 @@ library with a merge rule decided then.
 _Decided by the owner on 2026-10-21:_ notes are merged **per mark**. Marks from both devices are
 kept by their id. When both edited the same mark, the newer edit wins. A deleted mark stays
 deleted, so a deletion is kept as a tombstone until both sides have it. The general notes take the
-newer text. Built as step S7 here and step 5.7 on the phone, after the phone's marks (its M2).
+newer text. Built as step S9 here and step 5.7 on the phone, after the phone's marks (its M2).
 
 ### 2. The phone library
 
