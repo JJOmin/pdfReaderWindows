@@ -5,9 +5,12 @@ import { join } from 'node:path';
 import {
   buildPageIndex,
   LIBRARY_VERSION,
+  parseDeviceState,
+  parseManifest,
   parsePageIndex,
   parsePreparedPage,
   syncKey,
+  type DeviceState,
   type Manifest,
 } from '../shared/phone-library';
 import { MAX_REQUEST_TEXT } from '../shared/requests';
@@ -111,5 +114,61 @@ export class PhoneLibrary {
       updated: Date.now(),
     };
     await writeFile(join(folder, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  }
+
+  /** Whether the document is prepared whole: the manifest is written last. */
+  async isPrepared(docId: string): Promise<boolean> {
+    try {
+      const manifest = parseManifest(
+        JSON.parse(await readFile(join(this.root, docId, 'manifest.json'), 'utf8')),
+      );
+      return manifest?.docId === docId;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Every device's place in a prepared document, each from the file named after it. */
+  async states(docId: string): Promise<DeviceState[]> {
+    const dir = join(this.root, docId, 'state');
+    const states: DeviceState[] = [];
+    for (const file of existsSync(dir) ? await readdir(dir) : []) {
+      try {
+        const state = parseDeviceState(JSON.parse(await readFile(join(dir, file), 'utf8')));
+        if (state && file === `${state.device}.json`) states.push(state);
+      } catch {
+        // A file that is not ours is left out.
+      }
+    }
+    return states;
+  }
+
+  statePath(docId: string, device: string): string {
+    return join(this.root, docId, 'state', `${device}.json`);
+  }
+
+  private async pageIndex(docId: string, page: number) {
+    try {
+      return parsePageIndex(
+        JSON.parse(await readFile(join(this.root, docId, 'pages', `${page}.json`), 'utf8')),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /** The sync key of a page's n-th sentence: the desktop reads a prepared page in the index's order. */
+  async sentenceKey(docId: string, page: number, index: number): Promise<string | null> {
+    return (await this.pageIndex(docId, page))?.sentences[index]?.key ?? null;
+  }
+
+  /** Where another device's sentence is on this one: found by its key first, by its index second. */
+  async sentenceIndex(
+    docId: string,
+    sentence: { page: number; index: number; key: string },
+  ): Promise<number> {
+    const sentences = (await this.pageIndex(docId, sentence.page))?.sentences ?? [];
+    const found = sentences.findIndex((s) => s.key === sentence.key);
+    return found >= 0 ? found : sentence.index;
   }
 }

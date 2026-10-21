@@ -241,3 +241,17 @@ export const newestState = (states: readonly DeviceState[]): DeviceState | undef
     (best, s) => (!best || s.updated > best.updated ? s : best),
     undefined,
   );
+
+/**
+ * The place to offer when a document opens: the newest state, if another device wrote it after
+ * this device last moved in the document. `ownUpdated` is when this device last did.
+ */
+export function placeOffer(
+  states: readonly DeviceState[],
+  device: string,
+  ownUpdated: number | undefined,
+): DeviceState | undefined {
+  const newest = newestState(states);
+  if (!newest || newest.device === device) return undefined;
+  return ownUpdated === undefined || newest.updated > ownUpdated ? newest : undefined;
+}

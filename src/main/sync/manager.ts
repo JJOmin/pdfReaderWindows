@@ -79,6 +79,23 @@ export class SyncManager {
     return { backend: config.backend, account, dropboxAvailable: this.dropboxKey !== '' };
   }
 
+  private device: Promise<string> | undefined;
+
+  /**
+   * This computer's id. It names its place in the phone library (step S6) and in the store, so
+   * both kinds of sync agree on who wrote it. Kept from the first time it is asked for.
+   */
+  deviceId(): Promise<string> {
+    return (this.device ??= this.load().then(async ({ config, secrets }) => {
+      try {
+        await this.save(config, secrets);
+      } catch {
+        // Without the system's secret store the id lasts this session only.
+      }
+      return config.deviceId;
+    }));
+  }
+
   async getStatus(): Promise<SyncStatus> {
     return this.status((await this.load()).config);
   }

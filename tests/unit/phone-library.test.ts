@@ -4,6 +4,7 @@ import {
   libraryTimings,
   newestState,
   pageWords,
+  placeOffer,
   parseDeviceState,
   parseManifest,
   parsePageIndex,
@@ -357,5 +358,28 @@ describe('buildPageIndex', () => {
 
   it('is null when a timing lies outside the sentence’s audio', () => {
     expect(buildPageIndex([prepared('a b', { ms: 150 })], fakeHash)).toBeNull();
+  });
+});
+
+describe('placeOffer', () => {
+  const phone = (updated: number, page = 2): DeviceState => ({
+    device: 'd'.repeat(32),
+    name: 'Galaxy S20 FE',
+    updated,
+    page,
+    offset: 0,
+    sentence: null,
+  });
+  const own = { ...phone(0), device: DEVICE, name: 'Desk' };
+
+  it('offers another device’s place when it is newer than this device’s', () => {
+    expect(placeOffer([phone(2000)], DEVICE, 1000)?.name).toBe('Galaxy S20 FE');
+    expect(placeOffer([phone(2000)], DEVICE, undefined)?.page).toBe(2);
+  });
+
+  it('offers nothing when this device read last, or nobody else did', () => {
+    expect(placeOffer([phone(1000)], DEVICE, 2000)).toBeUndefined();
+    expect(placeOffer([{ ...own, updated: 3000 }, phone(2000)], DEVICE, 1000)).toBeUndefined();
+    expect(placeOffer([], DEVICE, 1000)).toBeUndefined();
   });
 });

@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, safeStorage, shell } from 'electron';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
-import { basename, join, normalize, resolve, sep } from 'node:path';
+import { basename, dirname, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseNotes } from '../shared/notes';
 import { parseSynthRequest } from '../shared/requests';
@@ -13,7 +13,8 @@ import {
   rememberProgress,
   type ProgressStore,
 } from '../shared/settings';
-import type { NotesFile, OpenedPdf, Settings, SynthRequest } from '../shared/types';
+import { placeOffer, type DeviceState } from '../shared/phone-library';
+import type { NotesFile, OpenedPdf, PlaceOffer, Settings, SynthRequest } from '../shared/types';
 import { annotate, parseMarks } from './annotate';
 import { PhoneLibrary, sha256, type LibraryDocument } from './library';
 import { PhoneServer } from './phone-server';
@@ -115,6 +116,11 @@ function writeProgress(): void {
   progressWrittenAt = Date.now();
   try {
     writeFileSync(progressPath(), JSON.stringify(progress));
+    if (pendingState) {
+      mkdirSync(dirname(pendingState.path), { recursive: true });
+      writeFileSync(pendingState.path, pendingState.json);
+      pendingState = undefined;
+    }
   } catch {
     // Losing the place in a document is not worth interrupting the user for.
   }
@@ -126,6 +132,21 @@ function scheduleProgressWrite(): void {
   if (progressTimer) return;
   const wait = Math.max(0, progressWrittenAt + PROGRESS_WRITE_MS - Date.now());
   progressTimer = setTimeout(writeProgress, wait);
+}
+
+/** This computer's place in a prepared document, written with the progress file (step S6). */
+let pendingState: { path: string; json: string } | undefined;
+
+/** Another device's newer place in this document, with its sentence found here. */
+async function offerFor(docId: string, ownUpdated: number | undefined): Promise<PlaceOffer | null> {
+  if (!(await library.isPrepared(docId))) return null;
+  const state = placeOffer(await library.states(docId), await sync.deviceId(), ownUpdated);
+  if (!state) return null;
+  const sentence = state.sentence && {
+    page: state.sentence.page,
+    index: await library.sentenceIndex(docId, state.sentence),
+  };
+  return { from: state.name, page: state.page, offset: state.offset, sentence };
 }
 
 async function loadPdf(path: string): Promise<OpenedPdf> {
@@ -140,12 +161,14 @@ async function loadPdf(path: string): Promise<OpenedPdf> {
   currentPdf = path;
   currentDoc = { docId: sha256(data), name: basename(path), path };
   currentId += 1;
+  const saved = documents[resolve(path)];
   return {
     id: currentId,
     name: basename(path),
     data,
     notes,
-    progress: normalizeProgress(documents[resolve(path)]),
+    progress: normalizeProgress(saved),
+    offer: await offerFor(currentDoc.docId, saved?.updated),
   };
 }
 
@@ -165,7 +188,25 @@ function registerIpc(): void {
   ipcMain.handle('progress:save', async (_event, id: unknown, value: unknown) => {
     const place = normalizeProgress(value);
     if (!currentPdf || id !== currentId || !place) return;
-    rememberProgress(await progressStore(), resolve(currentPdf), place, Date.now());
+    const now = Date.now();
+    rememberProgress(await progressStore(), resolve(currentPdf), place, now);
+    // A prepared document's place also goes where phones read it, under this computer's id.
+    const doc = currentDoc;
+    if (doc && (await library.isPrepared(doc.docId))) {
+      const device = await sync.deviceId();
+      const key =
+        place.sentence && (await library.sentenceKey(doc.docId, place.sentence.page, place.sentence.index));
+      const state: DeviceState = {
+        device,
+        name: hostname(),
+        updated: now,
+        page: place.page,
+        offset: place.offset,
+        sentence: place.sentence && key ? { ...place.sentence, key } : null,
+      };
+      if (doc === currentDoc)
+        pendingState = { path: library.statePath(doc.docId, device), json: JSON.stringify(state) };
+    }
     scheduleProgressWrite();
   });
   ipcMain.handle('notes:save', async (_event, value: unknown) => {

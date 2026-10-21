@@ -155,6 +155,16 @@ export interface Progress {
   sentence: { page: number; index: number } | null;
 }
 
+/** Another device's newer place in a prepared document, offered when it opens (ADR 7 section 8). */
+export interface PlaceOffer {
+  /** The device's name, such as "Galaxy S20 FE". */
+  from: string;
+  page: number;
+  offset: number;
+  /** The sentence it read last, as an index among this page's sentences here. */
+  sentence: { page: number; index: number } | null;
+}
+
 export interface OpenedPdf {
   /** Names this opening of a file; progress is saved against it, never against a path. */
   id: number;
@@ -162,6 +172,7 @@ export interface OpenedPdf {
   data: Uint8Array;
   notes: NotesFile | null;
   progress: Progress | null;
+  offer: PlaceOffer | null;
 }
 
 /** Where the phone library is kept in sync (ADR 8). */

@@ -1,5 +1,5 @@
 import { READING_LIMITS, resolveVoice } from '../../shared/settings';
-import type { Api, OpenedPdf, Progress, RawRange, Utterance } from '../../shared/types';
+import type { Api, OpenedPdf, PlaceOffer, Progress, RawRange, Utterance } from '../../shared/types';
 import { focusBand, scrollToCentre } from './focus';
 import { paint } from './highlights';
 import { NotesPanel } from './notes-panel';
@@ -280,6 +280,7 @@ async function show(opened: OpenedPdf | null): Promise<void> {
     status(`Could not open ${opened.name}: ${error instanceof Error ? error.message : String(error)}`, true);
     return;
   }
+  offerPlace(opened.offer);
   document.title = `${opened.name} – PDF Reader`;
   $('#title').textContent = opened.name;
   notes.load(opened.name, opened.notes);
@@ -295,6 +296,23 @@ async function show(opened: OpenedPdf | null): Promise<void> {
   showPageInfo();
   status('');
 }
+
+/** Offers another device's newer place in this document (ADR 7 section 8). */
+function offerPlace(offer: PlaceOffer | null): void {
+  $('#place-offer').hidden = offer === null;
+  if (!offer) return;
+  $('#place-offer-text').textContent = `Continue where you stopped on ${offer.from}, page ${offer.page}?`;
+  $('#place-continue').onclick = () => {
+    $('#place-offer').hidden = true;
+    reader.stop();
+    // Play goes on from the sentence the other device read last.
+    resume = offer.sentence ?? { page: offer.page, index: 0 };
+    lastSentence = offer.sentence;
+    view.showPage(offer.page, offer.offset);
+    remember();
+  };
+}
+$('#place-dismiss').addEventListener('click', () => ($('#place-offer').hidden = true));
 
 const open = async (): Promise<void> => show(await api.openPdf());
 const playPause = (): void => {
