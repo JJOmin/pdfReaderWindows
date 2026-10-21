@@ -287,7 +287,9 @@ dialog p {
   font-size: 14px;
 }
 
-#status {
+#statusbar {
+  display: flex;
+  gap: 16px;
   padding: 3px 12px;
   min-height: 24px;
   font-size: 12px;
@@ -296,12 +298,40 @@ dialog p {
   border-top: 1px solid var(--border);
 }
 
+#status {
+  flex: 1;
+}
+
+#phone-syncing {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  animation: spin 1.2s linear infinite;
+}
+
+#phone-syncing[hidden] {
+  display: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #phone-syncing {
+    animation: none;
+  }
+}
+
 #phone-actions {
   display: flex;
   gap: 8px;
 }
 
 #phone-status.error,
+#phone-progress.error,
 #status.error {
   color: var(--red);
 }

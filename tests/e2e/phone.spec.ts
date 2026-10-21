@@ -51,9 +51,15 @@ test('Add this document writes the phone library', async () => {
   await expect(page.locator('#page-info')).toHaveText('1 / 2');
   await page.click('#open-phone');
   await page.click('#phone-add');
-  await expect(page.locator('#phone-cancel')).toBeVisible();
-  await expect(page.locator('#phone-status')).toContainText('Added sample.pdf', { timeout: 170_000 });
+  // The dialog closes; the job shows at the bottom of the window and beside the Phone button.
+  await expect(page.locator('#phone')).not.toBeVisible();
+  await expect(page.locator('#phone-syncing')).toBeVisible();
+  await expect(page.locator('#phone-progress')).toContainText('Phone: preparing sample.pdf');
+  await expect(page.locator('#phone-progress')).toContainText('sample.pdf is ready', { timeout: 170_000 });
+  await expect(page.locator('#phone-syncing')).toBeHidden();
+  await page.click('#open-phone');
   await expect(page.locator('#phone-add')).toBeEnabled();
+  await expect(page.locator('#phone-cancel')).toBeHidden();
 
   const pdf = readFileSync(fixture);
   const docId = createHash('sha256').update(pdf).digest('hex');

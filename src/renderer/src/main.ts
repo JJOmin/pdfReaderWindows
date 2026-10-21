@@ -402,13 +402,22 @@ $('#open-voices').addEventListener('click', () => {
 
 /** The running "Add this document" job. It goes on when the dialog is closed. */
 let preparing: AbortController | undefined;
+/** Hides the last job's result after a while; an error stays until the next job. */
+let phoneProgressTimer: ReturnType<typeof setTimeout> | undefined;
+const PHONE_RESULT_MS = 10_000;
+/** The job's progress, in the dialog and at the bottom of the window, where it shows while the dialog is shut. */
 const phoneStatus = (message: string, error = false): void => {
-  $('#phone-status').textContent = message;
-  $('#phone-status').classList.toggle('error', error);
+  clearTimeout(phoneProgressTimer);
+  for (const id of ['#phone-status', '#phone-progress']) {
+    $(id).textContent = message;
+    $(id).classList.toggle('error', error);
+  }
+  $('#phone-progress').hidden = false;
 };
 const showPreparing = (): void => {
   $<HTMLButtonElement>('#phone-add').disabled = preparing !== undefined || pdf.pageCount === 0;
   $('#phone-cancel').hidden = preparing === undefined;
+  $('#phone-syncing').toggleAttribute('hidden', preparing === undefined);
 };
 $('#open-phone').addEventListener('click', () => {
   showPreparing();
@@ -419,8 +428,10 @@ $('#phone-add').addEventListener('click', () => {
   const job = new AbortController();
   preparing = job;
   showPreparing();
+  // Preparing takes minutes: the window stays usable, and the progress shows at the bottom.
+  $<HTMLDialogElement>('#phone').close();
   const name = $('#title').textContent;
-  phoneStatus(`Preparing ${name}`);
+  phoneStatus(`Phone: preparing ${name}`);
   void prepareForPhone(
     {
       api,
@@ -431,15 +442,18 @@ $('#phone-add').addEventListener('click', () => {
       utterances: (page) => pdf.pageUtterances(page),
       progress: ({ pagesDone, pages, rendered }) =>
         phoneStatus(
-          `Preparing ${name}: page ${Math.min(pages, pagesDone + 1)} of ${pages}, ${rendered} sentences`,
+          `Phone: preparing ${name}, page ${Math.min(pages, pagesDone + 1)} of ${pages}, ${rendered} sentences`,
         ),
     },
     job.signal,
   )
-    .then(({ cancelled, rendered }) =>
-      phoneStatus(cancelled ? 'Cancelled.' : `Added ${name}: ${rendered} sentences ready for the phone.`),
+    .then(({ cancelled, rendered }) => {
+      phoneStatus(cancelled ? 'Phone: cancelled.' : `Phone: ${name} is ready, ${rendered} sentences.`);
+      phoneProgressTimer = setTimeout(() => ($('#phone-progress').hidden = true), PHONE_RESULT_MS);
+    })
+    .catch((error: unknown) =>
+      phoneStatus(`Phone: ${error instanceof Error ? error.message : String(error)}`, true),
     )
-    .catch((error: unknown) => phoneStatus(error instanceof Error ? error.message : String(error), true))
     .finally(() => {
       preparing = undefined;
       showPreparing();

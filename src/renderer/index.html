@@ -51,6 +51,11 @@
       </button>
       <button id="open-voices">Voices</button>
       <button id="open-phone">Phone</button>
+      <svg id="phone-syncing" hidden viewBox="0 0 24 24" aria-label="Preparing for the phone" role="img">
+        <path
+          d="M12 4a8 8 0 0 1 7.4 5H16v2h7V4h-2v3.1A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8zm8 8a8 8 0 0 1-15.4 3H8v-2H1v7h2v-3.1A10 10 0 0 0 22 12h-2z"
+        />
+      </svg>
       <button id="toggle-sidebar" aria-pressed="true">Notes</button>
     </header>
 
@@ -142,7 +147,10 @@
       </form>
     </dialog>
 
-    <footer id="status" role="status"></footer>
+    <footer id="statusbar">
+      <span id="status" role="status"></span>
+      <span id="phone-progress" role="status" hidden></span>
+    </footer>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>
