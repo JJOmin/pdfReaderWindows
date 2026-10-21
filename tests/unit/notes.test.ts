@@ -43,6 +43,28 @@ describe('reanchor', () => {
     expect(reanchor(annotation(), 'A very quick fox')).toMatchObject({ start: 7, end: 12 });
     expect(reanchor(annotation(), 'Nothing here')).toBeNull();
   });
+
+  it('finds text again where the page has other whitespace, as between PDF.js and the phone’s PDFium', () => {
+    // PDF.js has no character at a line end; PDFium has an inserted space, so a mark made on the
+    // phone holds "was trained" where the desktop's page reads "wastrained", and the other way round.
+    const phone = annotation({ text: 'was trained', start: 0, end: 11 });
+    expect(reanchor(phone, 'it wastrained twice')).toMatchObject({ start: 3, end: 13, text: 'wastrained' });
+    const desktop = annotation({ text: 'wastrained', start: 0, end: 10 });
+    expect(reanchor(desktop, 'it was trained twice')).toMatchObject({
+      start: 3,
+      end: 14,
+      text: 'was trained',
+    });
+    expect(reanchor(phone, 'it was not trained')).toBeNull();
+  });
+
+  it('prefers an exact match, wherever it is', () => {
+    expect(reanchor(annotation({ text: 'a b', start: 0, end: 3 }), 'ab a b')).toMatchObject({ start: 3 });
+  });
+
+  it('does not match a whitespace-only text', () => {
+    expect(reanchor(annotation({ text: '  ', start: 0, end: 2 }), 'a b')).toBeNull();
+  });
 });
 
 describe('toMarkdown', () => {

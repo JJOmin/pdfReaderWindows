@@ -43,13 +43,29 @@ export function parseNotes(value: unknown): NotesFile | null {
 }
 
 /**
+ * A pattern for a mark's text that accepts any whitespace, or none, between any two characters:
+ * the desktop's raw string has no character at a line end where the phone's has a space, so a mark
+ * from one device holds whitespace the other's page lacks, or the reverse.
+ */
+const tolerantPattern = (text: string): RegExp | null => {
+  const chars = [...text.replace(/\s+/gu, '')];
+  return chars.length === 0
+    ? null
+    : new RegExp(chars.map((c) => c.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('\\s*'), 'u');
+};
+
+/**
  * Checks an annotation against the page's raw text and moves it if the text sits elsewhere.
  * Returns null when the text is gone, for example after the PDF was replaced.
  */
 export function reanchor(annotation: Annotation, pageRaw: string): Annotation | null {
   if (pageRaw.slice(annotation.start, annotation.end) === annotation.text) return annotation;
   const start = pageRaw.indexOf(annotation.text);
-  return start < 0 ? null : { ...annotation, start, end: start + annotation.text.length };
+  if (start >= 0) return { ...annotation, start, end: start + annotation.text.length };
+  const match = tolerantPattern(annotation.text)?.exec(pageRaw);
+  return match
+    ? { ...annotation, start: match.index, end: match.index + match[0].length, text: match[0] }
+    : null;
 }
 
 export const sortAnnotations = (annotations: Annotation[]): Annotation[] =>
