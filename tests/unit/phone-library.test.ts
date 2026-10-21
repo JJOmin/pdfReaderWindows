@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildPageIndex,
+  libraryTimings,
   newestState,
   pageWords,
   parseDeviceState,
   parseManifest,
   parsePageIndex,
+  parsePreparedPage,
   sentenceStarts,
+  syncKey,
   syncText,
   type DeviceState,
+  type PreparedSentence,
 } from '../../src/shared/phone-library';
 import type { Utterance } from '../../src/shared/types';
 
@@ -230,5 +235,127 @@ describe('newestState', () => {
   it('picks the most recently updated state', () => {
     expect(newestState([at(1), at(3, 'd'.repeat(32)), at(2)])?.updated).toBe(3);
     expect(newestState([])).toBeUndefined();
+  });
+});
+
+describe('libraryTimings', () => {
+  it('turns seconds into whole milliseconds', () => {
+    expect(
+      libraryTimings(
+        [
+          { start: 0, end: 0.3104 },
+          { start: 0.3104, end: 0.72 },
+        ],
+        0.9,
+      ),
+    ).toEqual({
+      ms: 900,
+      timings: [
+        [0, 310],
+        [310, 720],
+      ],
+    });
+  });
+
+  it('keeps every word in order and inside the audio, as the index requires', () => {
+    // The recogniser can place a start before the previous end, or an end past the audio.
+    const { ms, timings } = libraryTimings(
+      [
+        { start: 0.1, end: 0.5 },
+        { start: 0.4, end: 0.3 },
+        { start: 0.9, end: 1.2 },
+      ],
+      1,
+    );
+    expect(timings).toEqual([
+      [100, 500],
+      [500, 500],
+      [900, 1000],
+    ]);
+    expect(
+      parsePageIndex({ wordCount: 3, wordsHash: HASH, sentences: [{ ...sentence(), ms, words: timings }] }),
+    ).not.toBeNull();
+  });
+});
+
+/** A stand-in for SHA-256 that is easy to read: the text's length, padded to 64 hex digits. */
+const fakeHash = (text: string): string => text.length.toString(16).padStart(64, '0');
+
+/** A sentence as the renderer sends it, each word 100 ms long. `over` may make it invalid. */
+const prepared = (text: string, over: Record<string, unknown> = {}): PreparedSentence => {
+  const words = text.split(/\s+/u);
+  return {
+    text,
+    lang: 'en',
+    words,
+    ms: 1000,
+    timings: words.map((_, i) => [i * 100, i * 100 + 100]),
+    ...over,
+  } as PreparedSentence;
+};
+
+describe('parsePreparedPage', () => {
+  it('accepts sentences with one timing per word', () => {
+    const page = [prepared('Tutorials help.'), prepared('A b c')];
+    expect(parsePreparedPage(page)).toEqual(page);
+    expect(parsePreparedPage([])).toEqual([]);
+  });
+
+  it('rejects anything else', () => {
+    expect(parsePreparedPage(null)).toBeNull();
+    expect(parsePreparedPage({})).toBeNull();
+    const bad = [
+      { text: '' },
+      { text: 'x'.repeat(2001) },
+      { lang: 'fr' },
+      { words: [] },
+      { words: ['a', 7] },
+      { timings: [[0, 100]] },
+      { ms: Number.NaN },
+    ];
+    for (const over of bad)
+      expect(parsePreparedPage([prepared('a b', over)]), JSON.stringify(over)).toBeNull();
+  });
+});
+
+describe('buildPageIndex', () => {
+  it('numbers the words across sentences and keys each sentence by its text', () => {
+    const index = buildPageIndex(
+      [prepared('I. INTRODUCTION'), prepared('Tutorials break\ndown topics.')],
+      fakeHash,
+    );
+    expect(index).toEqual({
+      wordCount: 6,
+      // The words joined by single spaces: "I. INTRODUCTION Tutorials break down topics."
+      wordsHash: fakeHash('I. INTRODUCTION Tutorials break\ndown topics.'.replace('\n', ' ')),
+      sentences: [
+        {
+          key: fakeHash('I. INTRODUCTION').slice(0, 40),
+          lang: 'en',
+          ms: 1000,
+          from: 0,
+          words: prepared('a b').timings,
+        },
+        {
+          // The key's text has its line break folded, so the phone finds it from its own text.
+          key: syncKey('Tutorials break down topics.', fakeHash),
+          lang: 'en',
+          ms: 1000,
+          from: 2,
+          words: prepared('a b c d').timings,
+        },
+      ],
+    });
+  });
+
+  it('hashes the words after NFKC', () => {
+    const index = buildPageIndex([prepared('ﬁnd it', { words: ['ﬁnd', 'it'] })], (t) =>
+      t === 'find it' ? HASH : KEY + KEY.slice(0, 24),
+    );
+    expect(index?.wordsHash).toBe(HASH);
+  });
+
+  it('is null when a timing lies outside the sentence’s audio', () => {
+    expect(buildPageIndex([prepared('a b', { ms: 150 })], fakeHash)).toBeNull();
   });
 });

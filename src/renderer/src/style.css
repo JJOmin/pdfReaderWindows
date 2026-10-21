@@ -296,6 +296,12 @@ dialog p {
   border-top: 1px solid var(--border);
 }
 
+#phone-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#phone-status.error,
 #status.error {
   color: var(--red);
 }

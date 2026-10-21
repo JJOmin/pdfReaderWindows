@@ -14,6 +14,7 @@ import {
 } from '../shared/settings';
 import type { NotesFile, OpenedPdf, Settings, SynthRequest } from '../shared/types';
 import { annotate, parseMarks } from './annotate';
+import { PhoneLibrary, sha256, type LibraryDocument } from './library';
 import { resourcePaths } from './resources';
 import { Tts } from './tts';
 
@@ -44,6 +45,9 @@ const tts = new Tts(modelsDir, {
 
 /** The PDF the window shows. Notes are only ever written next to this file. */
 let currentPdf: string | undefined;
+/** The same PDF as the phone library names it, by the hash of the bytes that were opened. */
+let currentDoc: LibraryDocument | undefined;
+const library = new PhoneLibrary(join(app.getPath('userData'), 'phone-library'));
 /** Names the current opening, so that a late message about the previous document is ignored. */
 let currentId = 0;
 
@@ -98,6 +102,7 @@ async function loadPdf(path: string): Promise<OpenedPdf> {
   }
   const { documents } = await progressStore();
   currentPdf = path;
+  currentDoc = { docId: sha256(data), name: basename(path), path };
   currentId += 1;
   return {
     id: currentId,
@@ -151,6 +156,17 @@ function registerIpc(): void {
     await writeFile(filePath, await annotate(await readFile(currentPdf), parseMarks(marks), notes));
     return filePath;
   });
+  // Only for the document on screen: a late message from a previous one is refused.
+  const libraryDoc = (id: unknown): LibraryDocument => {
+    if (!currentDoc || id !== currentId) throw new Error('The document was closed');
+    return currentDoc;
+  };
+  ipcMain.handle('library:audio', (_event, id: unknown, text: unknown, audio: unknown) =>
+    library.addAudio(libraryDoc(id), text, audio),
+  );
+  ipcMain.handle('library:page', (_event, id: unknown, page: unknown, pages: unknown, sentences: unknown) =>
+    library.addPage(libraryDoc(id), page, pages, sentences),
+  );
   ipcMain.handle('tts:voices', () => tts.voices());
   // Whatever the renderer sends is checked here: it is a sandboxed page, not trusted code.
   const request = (value: unknown): SynthRequest => {

@@ -1,3 +1,5 @@
+import type { PreparedSentence } from './phone-library.ts';
+
 export type Lang = 'en' | 'de';
 export type Role = 'main' | 'quote' | 'heading';
 export const LANGS: readonly Lang[] = ['en', 'de'];
@@ -180,4 +182,11 @@ export interface Api {
    * `synthesize` finds it later. Runs behind any sentence somebody is waiting for.
    */
   prerender(request: SynthRequest): Promise<void>;
+  /**
+   * Phone library (ADR 7): stores a sentence's Ogg Opus audio for the document that opening `id`
+   * gave. The main process names the file by the sentence's sync key.
+   */
+  addPhoneAudio(id: number, text: string, audio: Uint8Array): Promise<void>;
+  /** Writes a page's index once its audio is stored. The last page writes the PDF and the manifest. */
+  addPhonePage(id: number, page: number, pages: number, sentences: PreparedSentence[]): Promise<void>;
 }

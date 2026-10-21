@@ -50,6 +50,7 @@
         Reading view
       </button>
       <button id="open-voices">Voices</button>
+      <button id="open-phone">Phone</button>
       <button id="toggle-sidebar" aria-pressed="true">Notes</button>
     </header>
 
@@ -122,6 +123,22 @@
           Takes effect from the next sentence.
         </p>
         <button>Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="phone">
+      <form method="dialog">
+        <h2>Phone sync</h2>
+        <p>
+          Prepares the open document for the phone: every sentence is spoken with the chosen voices and stored
+          on this computer, with the PDF.
+        </p>
+        <p id="phone-status" role="status"></p>
+        <div id="phone-actions">
+          <button type="button" id="phone-add">Add this document</button>
+          <button type="button" id="phone-cancel" hidden>Cancel</button>
+          <button>Close</button>
+        </div>
       </form>
     </dialog>
 

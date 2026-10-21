@@ -4,6 +4,7 @@ import { focusBand, scrollToCentre } from './focus';
 import { paint } from './highlights';
 import { NotesPanel } from './notes-panel';
 import { Pdf } from './pdf';
+import { prepareForPhone } from './phone';
 import { Reader } from './reader';
 import { ReadingView } from './reading-view';
 import { Search } from './search';
@@ -262,6 +263,8 @@ function setView(next: TextView): void {
 async function show(opened: OpenedPdf | null): Promise<void> {
   if (!opened) return;
   reader.stop();
+  // The main process would refuse its writes now; stop rendering for a document that is gone.
+  preparing?.abort();
   // Nothing about the previous document may be reported as this one's.
   clearTimeout(progressTimer);
   const saved = opened.progress;
@@ -395,6 +398,52 @@ $('#open-voices').addEventListener('click', () => {
       .then(() => status(''));
   });
   $<HTMLDialogElement>('#voices').showModal();
+});
+
+/** The running "Add this document" job. It goes on when the dialog is closed. */
+let preparing: AbortController | undefined;
+const phoneStatus = (message: string, error = false): void => {
+  $('#phone-status').textContent = message;
+  $('#phone-status').classList.toggle('error', error);
+};
+const showPreparing = (): void => {
+  $<HTMLButtonElement>('#phone-add').disabled = preparing !== undefined || pdf.pageCount === 0;
+  $('#phone-cancel').hidden = preparing === undefined;
+};
+$('#open-phone').addEventListener('click', () => {
+  showPreparing();
+  $<HTMLDialogElement>('#phone').showModal();
+});
+$('#phone-cancel').addEventListener('click', () => preparing?.abort());
+$('#phone-add').addEventListener('click', () => {
+  const job = new AbortController();
+  preparing = job;
+  showPreparing();
+  const name = $('#title').textContent;
+  phoneStatus(`Preparing ${name}`);
+  void prepareForPhone(
+    {
+      api,
+      id: documentId,
+      settings,
+      voices,
+      pageCount: pdf.pageCount,
+      utterances: (page) => pdf.pageUtterances(page),
+      progress: ({ pagesDone, pages, rendered }) =>
+        phoneStatus(
+          `Preparing ${name}: page ${Math.min(pages, pagesDone + 1)} of ${pages}, ${rendered} sentences`,
+        ),
+    },
+    job.signal,
+  )
+    .then(({ cancelled, rendered }) =>
+      phoneStatus(cancelled ? 'Cancelled.' : `Added ${name}: ${rendered} sentences ready for the phone.`),
+    )
+    .catch((error: unknown) => phoneStatus(error instanceof Error ? error.message : String(error), true))
+    .finally(() => {
+      preparing = undefined;
+      showPreparing();
+    });
 });
 
 const searchBox = $<HTMLInputElement>('#search');

@@ -1,4 +1,5 @@
-import { LANGS, type Lang, type Utterance } from './types.ts';
+import { MAX_REQUEST_TEXT } from './requests.ts';
+import { LANGS, type Lang, type Utterance, type WordTiming } from './types.ts';
 
 /**
  * The phone library of ADR 7: what the desktop prepares and a paired phone downloads. The phone
@@ -127,6 +128,84 @@ export function parseManifest(value: unknown): Manifest | null {
   if (typeof docId !== 'string' || !SHA256.test(docId) || !name(input.name, 255)) return null;
   if (!integer(pages, 1) || !integer(sentences, 0) || !integer(bytes, 0) || !finite(updated)) return null;
   return { version: LIBRARY_VERSION, docId, name: input.name, pages, sentences, bytes, updated };
+}
+
+/** A sentence the renderer prepared: its text and words, and its audio's length and word timings. */
+export interface PreparedSentence {
+  text: string;
+  lang: Lang;
+  /** The sentence's words, as `Utterance.words` holds them. */
+  words: string[];
+  ms: number;
+  timings: [number, number][];
+}
+
+/** A page holds a few hundred sentences; this only stops a runaway message. */
+const MAX_PAGE_SENTENCES = 5000;
+
+/** Word timings in seconds to whole milliseconds, in order and inside the audio, as the index needs. */
+export function libraryTimings(
+  timings: readonly WordTiming[],
+  seconds: number,
+): { ms: number; timings: [number, number][] } {
+  const ms = Math.round(seconds * 1000);
+  const clamp = (value: number, min: number): number => Math.min(ms, Math.max(min, Math.round(value * 1000)));
+  let previous = 0;
+  return {
+    ms,
+    timings: timings.map(({ start, end }) => {
+      const from = clamp(start, previous);
+      previous = clamp(end, from);
+      return [from, previous];
+    }),
+  };
+}
+
+/** Checks the sentences of a page that came from the renderer. Timings are checked by the index. */
+export function parsePreparedPage(value: unknown): PreparedSentence[] | null {
+  if (!Array.isArray(value) || value.length > MAX_PAGE_SENTENCES) return null;
+  const out: PreparedSentence[] = [];
+  for (const entry of value) {
+    const input = record(entry);
+    if (!input || !name(input.text, MAX_REQUEST_TEXT) || !LANGS.includes(input.lang as Lang)) return null;
+    const { words, timings, ms } = input;
+    if (!Array.isArray(words) || words.length === 0 || !words.every((w) => name(w, MAX_REQUEST_TEXT))) {
+      return null;
+    }
+    if (!Array.isArray(timings) || timings.length !== words.length || !finite(ms)) return null;
+    out.push({
+      text: input.text,
+      lang: input.lang as Lang,
+      words: words as string[],
+      ms,
+      timings: timings as [number, number][],
+    });
+  }
+  return out;
+}
+
+/** A sentence's sync key: names its audio file and finds it on a page whose words differ. */
+export const syncKey = (text: string, sha256: (text: string) => string): string =>
+  sha256(syncText(text)).slice(0, 40);
+
+/** The index of a page from its prepared sentences, in order, or null if it would not be valid. */
+export function buildPageIndex(
+  sentences: readonly PreparedSentence[],
+  sha256: (text: string) => string,
+): PageIndex | null {
+  const words = sentences.flatMap((s) => s.words.map((w) => w.normalize('NFKC')));
+  let from = 0;
+  const index = {
+    wordCount: words.length,
+    wordsHash: sha256(words.join(' ')),
+    sentences: sentences.map(({ text, lang, words, ms, timings }) => {
+      const sentence = { key: syncKey(text, sha256), lang, ms, from, words: timings };
+      from += words.length;
+      return sentence;
+    }),
+  };
+  // The same checks the phone makes, so a library the desktop writes is one the phone accepts.
+  return parsePageIndex(index);
 }
 
 /** Reads a device's state, as sent by a phone or read from disk, or null when it is not valid. */
