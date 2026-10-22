@@ -232,7 +232,8 @@ export interface PhoneServerStatus {
   addresses: string[];
   /** Interfaces that look like a VPN, which usually keeps the phone from connecting. */
   vpn: string[];
-  phones: { device: string; name: string; paired: number }[];
+  /** `seen`: when the phone last asked for anything this session, 0 if it has not. */
+  phones: { device: string; name: string; paired: number; seen: number }[];
 }
 
 export type PhoneEvent = { kind: 'pair'; name: string } | { kind: 'changed' };

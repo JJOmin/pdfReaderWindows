@@ -19,6 +19,8 @@ import {
   lanAddresses,
   pairingCode,
   pairingUrl,
+  changesSince,
+  type DocTimes,
   parseBearer,
   parsePairRequest,
   parseRequest,
@@ -36,6 +38,14 @@ export const ANNOUNCE_GROUP = '239.255.47.13';
 const ANNOUNCE_MS = 2000;
 /** The user has this long to answer "Pair with …?". */
 const PAIR_TIMEOUT_MS = 60_000;
+/** A phone that asked within this long is connected (as `phoneState` in shared/sync-state.ts says). */
+const CONNECTED_MS = 15_000;
+/** When a file was last written, 0 when there is none. */
+const modified = (path: string): Promise<number> =>
+  stat(path).then(
+    (s) => Math.floor(s.mtimeMs),
+    () => 0,
+  );
 const newSecret = (): string => randomBytes(16).toString('hex');
 /** Compared without telling how many leading characters matched. */
 const sameSecret = (given: string | undefined, secret: string): boolean =>
@@ -142,6 +152,8 @@ export class PhoneServer {
   private pairingOpen = false;
   /** The QR code's secret: made when the Phone dialog opens, new after each use, gone when it closes. */
   private secret = '';
+  /** When each paired phone last asked for anything, this session: the dialog shows it as connected. */
+  private readonly seen = new Map<string, number>();
   private pairing = false;
   private error = '';
 
@@ -216,7 +228,12 @@ export class PhoneServer {
       port: this.port,
       addresses: lanAddresses(networkInterfaces()),
       vpn: vpnInterfaces(networkInterfaces()),
-      phones: phones.map(({ device, name, paired }) => ({ device, name, paired })),
+      phones: phones.map(({ device, name, paired }) => ({
+        device,
+        name,
+        paired,
+        seen: this.seen.get(device) ?? 0,
+      })),
     };
   }
 
@@ -357,6 +374,30 @@ export class PhoneServer {
     const phone = await this.phoneFor(request);
     if (!phone) return empty(response, 401);
     const root = this.options.libraryRoot;
+    const before = this.seen.get(phone.device) ?? 0;
+    this.seen.set(phone.device, Date.now());
+    // Only the step from away to connected is news for the dialog, not every poll.
+    if (Date.now() - before > CONNECTED_MS) this.options.onChange?.();
+
+    if (parsed.kind === 'changes') {
+      // Taken before the files are read, so a write during the scan is reported again next time.
+      const now = Date.now();
+      const docs: Record<string, DocTimes> = {};
+      for (const docId of existsSync(root) ? await readdir(root) : []) {
+        const manifest = await this.manifest(docId);
+        if (!manifest) continue;
+        const folder = join(root, docId);
+        const states = existsSync(join(folder, 'state')) ? await readdir(join(folder, 'state')) : [];
+        // The phone's own place is not news to it.
+        const others = states.filter((f) => f !== `${phone.device}.json`);
+        docs[docId] = {
+          manifest: manifest.updated,
+          notes: await modified(join(folder, 'notes.json')),
+          state: Math.max(0, ...(await Promise.all(others.map((f) => modified(join(folder, 'state', f)))))),
+        };
+      }
+      return json(response, 200, changesSince(docs, parsed.since, now));
+    }
 
     if (parsed.kind === 'library') {
       const documents: Manifest[] = [];

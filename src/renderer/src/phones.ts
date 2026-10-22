@@ -1,4 +1,5 @@
 import qrcode from 'qrcode-generator';
+import { phoneState } from '../../shared/sync-state';
 import type { Api, PhoneServerStatus } from '../../shared/types';
 
 const $ = <T extends HTMLElement>(selector: string): T => document.querySelector<T>(selector)!;
@@ -51,10 +52,10 @@ export function setUpPhones(api: Api): void {
       'not connect. See ⓘ above.';
     const list = $('#lan-phones');
     list.replaceChildren(
-      ...status.phones.map(({ device, name, paired }) => {
+      ...status.phones.map(({ device, name, paired, seen }) => {
         const item = document.createElement('li');
         const label = document.createElement('span');
-        label.textContent = `${name}, paired ${new Date(paired).toLocaleDateString()}`;
+        label.textContent = `${name}, ${phoneState(paired, seen, Date.now())}`;
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.textContent = 'Remove';
@@ -65,6 +66,8 @@ export function setUpPhones(api: Api): void {
     );
   }
 
+  // The phone polls every 5 seconds while it is open, so "connected" is kept up to date as often.
+  let ticking: ReturnType<typeof setInterval> | undefined;
   const fail = (error: unknown): void => void ($('#lan-error').textContent = message(error));
   const refresh = (): void => void api.phoneServer().then(show, fail);
 
@@ -72,8 +75,11 @@ export function setUpPhones(api: Api): void {
     refresh();
     // The QR code's secret is made when pairing opens, so the picture is asked for again.
     void api.phonePairing(true).then(refresh, fail);
+    clearInterval(ticking);
+    ticking = setInterval(refresh, 5000);
   });
   dialog.addEventListener('close', () => {
+    clearInterval(ticking);
     $('#lan-ask').hidden = true;
     void api.phonePairing(false);
   });

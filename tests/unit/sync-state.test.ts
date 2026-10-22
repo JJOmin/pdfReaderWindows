@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { syncState, type SyncFacts } from '../../src/shared/sync-state';
+import { phoneState, syncState, type SyncFacts } from '../../src/shared/sync-state';
 
 const base: SyncFacts = {
   store: true,
@@ -36,5 +36,18 @@ describe('syncState', () => {
     expect(syncState(base)).toBe('done');
     expect(syncState({ ...base, store: false, phones: true, changedAt: 300 })).toBe('done');
     expect(syncState({ ...base, document: false, prepared: false })).toBe('done');
+  });
+});
+
+describe('phoneState', () => {
+  const at = (h: number, m: number): number => new Date(2026, 9, 22, h, m).getTime();
+
+  it('says connected while the phone asked within 15 seconds, and when it last did', () => {
+    expect(phoneState(at(9, 0), at(12, 3), at(12, 3) + 14_000)).toMatch(/^connected, synced 12.03/u);
+    expect(phoneState(at(9, 0), at(12, 3), at(12, 3) + 16_000)).toMatch(/^synced 12.03/u);
+  });
+
+  it('says when it was paired for a phone not heard from this session', () => {
+    expect(phoneState(at(9, 0), 0, at(12, 0))).toBe(`paired ${new Date(at(9, 0)).toLocaleDateString()}`);
   });
 });

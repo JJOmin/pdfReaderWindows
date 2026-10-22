@@ -29,3 +29,15 @@ export function syncState(facts: SyncFacts): SyncState {
   if (facts.store && (facts.failed || facts.changedAt > facts.syncedAt)) return 'pending';
   return 'done';
 }
+
+/** A phone that asked within this long is connected: it polls every 5 seconds while its app is open. */
+const CONNECTED_MS = 15_000;
+
+const clock = (t: number): string =>
+  new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** How the Phone dialog describes a paired phone: "connected, synced 12:03", "synced 09:41" or "paired 21.10.2026". */
+export function phoneState(paired: number, seen: number, now: number): string {
+  if (seen === 0) return `paired ${new Date(paired).toLocaleDateString()}`;
+  return now - seen <= CONNECTED_MS ? `connected, synced ${clock(seen)}` : `synced ${clock(seen)}`;
+}

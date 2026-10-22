@@ -4,7 +4,12 @@
  * phone's Dart port both follow it.
  */
 
-export const PROTOCOL_VERSION = 1;
+/**
+ * 2 adds `GET /v1/changes` (ADR 10 section 6); every request of 1 is still served. The announcement
+ * keeps saying 1, which phones of version 1 check for exactly.
+ */
+export const PROTOCOL_VERSION = 2;
+const ANNOUNCE_VERSION = 1;
 const APP = 'pdfreader';
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -47,6 +52,7 @@ export type PhoneRequest =
   | { kind: 'hello' }
   | { kind: 'pair' }
   | { kind: 'library' }
+  | { kind: 'changes'; since: number }
   | { kind: 'file'; docId: string; file: LibraryFile }
   | { kind: 'states'; docId: string }
   | { kind: 'putState'; docId: string; device: string }
@@ -59,6 +65,7 @@ const FILE = new RegExp(
 );
 const STATES = new RegExp(`^/v1/doc/(${DOC_ID})/state$`, 'u');
 const NOTES = new RegExp(`^/v1/doc/(${DOC_ID})/notes$`, 'u');
+const CHANGES = /^\/v1\/changes\?since=(\d{1,16})$/u;
 const PUT_STATE = new RegExp(`^/v1/doc/(${DOC_ID})/state/([0-9a-f]{32})$`, 'u');
 
 /** What a request asks for, or null for anything else, which is answered with 404. */
@@ -67,6 +74,8 @@ export function parseRequest(method: string, url: string): PhoneRequest | null {
   if (method === 'POST' && url === '/v1/pair') return { kind: 'pair' };
   if (method === 'GET' && url === '/v1/library') return { kind: 'library' };
   if (method === 'GET') {
+    const changes = CHANGES.exec(url);
+    if (changes) return { kind: 'changes', since: Number(changes[1]) };
     const file = FILE.exec(url);
     if (file) return { kind: 'file', docId: file[1]!, file: file[2] as LibraryFile };
     const states = STATES.exec(url);
@@ -160,13 +169,13 @@ export function parsePairingUrl(text: string): PairingUrl | null {
 
 /** What the desktop multicasts every two seconds while phone sync is on (ADR 7 section 5). */
 export const announcement = (name: string, port: number): Uint8Array =>
-  new TextEncoder().encode(JSON.stringify({ app: APP, protocol: PROTOCOL_VERSION, name, port }));
+  new TextEncoder().encode(JSON.stringify({ app: APP, protocol: ANNOUNCE_VERSION, name, port }));
 
 export function parseAnnouncement(bytes: Uint8Array): { name: string; port: number } | null {
   try {
     const value = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
     const { app, protocol, name, port } = value;
-    if (app !== APP || protocol !== PROTOCOL_VERSION || typeof name !== 'string') return null;
+    if (app !== APP || protocol !== ANNOUNCE_VERSION || typeof name !== 'string') return null;
     if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535) return null;
     return { name, port: port as number };
   } catch {
@@ -203,3 +212,28 @@ export const lanAddresses = (interfaces: Interfaces): string[] =>
     .flatMap(([, list]) => list ?? [])
     .filter((a) => a.family === 'IPv4' && !a.internal)
     .map((a) => a.address);
+
+/** When each part of a document last changed on this computer, as `GET /v1/changes` reports it. */
+export interface DocTimes {
+  manifest: number;
+  notes: number;
+  state: number;
+}
+
+/**
+ * What `GET /v1/changes?since=` answers (ADR 10 section 6): the documents with a part changed at or
+ * after `since`, and `now`, which the phone sends as `since` next time. Both times are this
+ * computer's, so the phone's clock does not matter. "At or after": a file written in the very
+ * millisecond `now` was taken is reported twice rather than never.
+ */
+export function changesSince(
+  docs: Record<string, DocTimes>,
+  since: number,
+  now: number,
+): { now: number; docs: Record<string, DocTimes> } {
+  const changed: Record<string, DocTimes> = {};
+  for (const [docId, t] of Object.entries(docs)) {
+    if (t.manifest >= since || t.notes >= since || t.state >= since) changed[docId] = t;
+  }
+  return { now, docs: changed };
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   announcement,
+  changesSince,
   codeMatches,
   lanAddresses,
   normalizeCode,
@@ -239,5 +240,40 @@ describe('pairing URL', () => {
     });
     expect(parsePairRequest({ device: DEVICE, name: 'Phone' })).toEqual({ device: DEVICE, name: 'Phone' });
     expect(parsePairRequest({ device: DEVICE, name: 'Phone', secret: 'nope' })).toBeNull();
+  });
+});
+
+describe('changes since', () => {
+  it('is a request of version 2, with a time', () => {
+    expect(parseRequest('GET', '/v1/changes?since=1792658000000')).toEqual({
+      kind: 'changes',
+      since: 1792658000000,
+    });
+    expect(parseRequest('GET', '/v1/changes?since=0')).toEqual({ kind: 'changes', since: 0 });
+    for (const bad of [
+      '/v1/changes',
+      '/v1/changes?since=-1',
+      '/v1/changes?since=1e9',
+      '/v1/changes?since=1&x=2',
+    ]) {
+      expect(parseRequest('GET', bad), bad).toBeNull();
+    }
+    expect(parseRequest('POST', '/v1/changes?since=1')).toBeNull();
+  });
+
+  it('names only the documents with a part changed at or after the time, and the time to ask from next', () => {
+    const docs = {
+      [DOC]: { manifest: 10, notes: 50, state: 20 },
+      ['e'.repeat(64)]: { manifest: 10, notes: 0, state: 30 },
+    };
+    expect(changesSince(docs, 40, 99)).toEqual({ now: 99, docs: { [DOC]: docs[DOC] } });
+    expect(Object.keys(changesSince(docs, 0, 99).docs)).toHaveLength(2);
+    expect(Object.keys(changesSince(docs, 50, 99).docs)).toEqual([DOC]);
+    expect(changesSince(docs, 51, 99).docs).toEqual({});
+  });
+
+  it('keeps announcing version 1, which older phones check for', () => {
+    expect(parseAnnouncement(announcement('PC', 47613))).toEqual({ name: 'PC', port: 47613 });
+    expect(JSON.parse(new TextDecoder().decode(announcement('PC', 1)))).toMatchObject({ protocol: 1 });
   });
 });

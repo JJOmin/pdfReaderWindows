@@ -135,7 +135,7 @@ test('a prepared document and phone sync switched on', async () => {
 test('the code proves the certificate, and a wrong code does not', async () => {
   const hello = await call('GET', '/v1/hello');
   expect(hello.status).toBe(200);
-  expect(JSON.parse(hello.body.toString())).toMatchObject({ app: 'pdfreader', protocol: 1 });
+  expect(JSON.parse(hello.body.toString())).toMatchObject({ app: 'pdfreader', protocol: 2 });
   expect(codeMatches(hello.fingerprint, code)).toBe(true);
   const wrong = code.replace(/^./u, (c) => (c === 'A' ? 'B' : 'A'));
   expect(codeMatches(hello.fingerprint, wrong)).toBe(false);
@@ -319,6 +319,34 @@ test('a phone’s marks are merged per mark and reach the open document', async 
   expect((await put({ version: 2 })).status).toBe(400);
   expect((await call('PUT', `/v1/doc/${docId}/notes`, { token: 'f'.repeat(64), body: {} })).status).toBe(401);
   expect(pageErrors).toEqual([]);
+});
+
+test('a phone asks what changed since a time, and is told only of others’ changes', async () => {
+  const changes = async (since: number) => {
+    const answer = await call('GET', `/v1/changes?since=${since}`, { token });
+    expect(answer.status).toBe(200);
+    return JSON.parse(answer.body.toString()) as { now: number; docs: Record<string, { notes: number }> };
+  };
+  // From the start everything is new; the answer says what to ask from next.
+  const first = await changes(0);
+  expect(Object.keys(first.docs)).toEqual([docId]);
+  expect(first.docs[docId]!.notes).toBeGreaterThan(0);
+  expect((await changes(first.now)).docs).toEqual({});
+
+  // The phone's own place is not news to it.
+  const state = { device, name: 'Test phone', updated: Date.now(), page: 1, offset: 0, sentence: null };
+  await call('PUT', `/v1/doc/${docId}/state/${device}`, { token, body: state });
+  expect((await changes(first.now)).docs).toEqual({});
+
+  // A mark made in the window is.
+  await page.fill('#annotations textarea', 'changed on the desktop');
+  await expect.poll(async () => Object.keys((await changes(first.now)).docs)).toEqual([docId]);
+
+  // Without a token nothing is told, and the dialog shows the phone as connected.
+  expect((await call('GET', '/v1/changes?since=0')).status).toBe(401);
+  await page.click('#open-phone');
+  await expect(page.locator('#lan-phones li', { hasText: 'Test phone' })).toContainText('connected, synced');
+  await page.keyboard.press('Escape');
 });
 
 test('Remove stops a paired phone at once', async () => {
