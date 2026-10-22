@@ -349,6 +349,28 @@ test('a phone asks what changed since a time, and is told only of others’ chan
   await page.keyboard.press('Escape');
 });
 
+test('Send to phone puts the document in that phone’s inbox, until the phone says it is handled', async () => {
+  // Stopped first, to see that sending makes it synced again.
+  await page.evaluate((id) => window.api.syncSetDocument(id, false), docId);
+  await page.click('#open-phone');
+  await expect(page.locator('#send-row')).toBeVisible();
+  await expect(page.locator('#send-target option')).toHaveText(['Test phone']);
+  await page.click('#send-phone');
+  await expect(page.locator('#phone-progress')).toContainText('sent to Test phone');
+
+  const inbox = async () =>
+    JSON.parse((await call('GET', '/v1/inbox', { token })).body.toString()) as unknown[];
+  expect(await inbox()).toEqual([expect.objectContaining({ docId, name: 'sample.pdf' })]);
+  const synced = await page.evaluate(() => window.api.syncDocuments());
+  expect(synced).toEqual([expect.objectContaining({ docId, synced: true })]);
+
+  // Declined or accepted, the phone says so, and the offer is gone.
+  expect((await call('DELETE', `/v1/inbox/${docId}`, { token })).status).toBe(204);
+  expect(await inbox()).toEqual([]);
+  expect((await call('GET', '/v1/inbox')).status).toBe(401);
+  await page.keyboard.press('Escape');
+});
+
 test('Remove stops a paired phone at once', async () => {
   await page.click('#open-phone');
   await page

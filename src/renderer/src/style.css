@@ -507,6 +507,7 @@ dialog p {
 
 .sync-row[hidden],
 #sync-connect[hidden],
+#send-row[hidden],
 #sync-documents-box[hidden] {
   display: none;
 }

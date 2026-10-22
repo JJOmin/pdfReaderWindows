@@ -5,7 +5,7 @@
  */
 
 /**
- * 2 adds `GET /v1/changes` (ADR 10 section 6); every request of 1 is still served. The announcement
+ * 2 adds `GET /v1/changes` and the inbox, `GET /v1/inbox` and `DELETE /v1/inbox/<doc>` (ADR 10 section 6); every request of 1 is still served. The announcement
  * keeps saying 1, which phones of version 1 check for exactly.
  */
 export const PROTOCOL_VERSION = 2;
@@ -53,6 +53,8 @@ export type PhoneRequest =
   | { kind: 'pair' }
   | { kind: 'library' }
   | { kind: 'changes'; since: number }
+  | { kind: 'inbox' }
+  | { kind: 'handled'; docId: string }
   | { kind: 'file'; docId: string; file: LibraryFile }
   | { kind: 'states'; docId: string }
   | { kind: 'putState'; docId: string; device: string }
@@ -65,6 +67,7 @@ const FILE = new RegExp(
 );
 const STATES = new RegExp(`^/v1/doc/(${DOC_ID})/state$`, 'u');
 const NOTES = new RegExp(`^/v1/doc/(${DOC_ID})/notes$`, 'u');
+const HANDLED = new RegExp(`^/v1/inbox/(${DOC_ID})$`, 'u');
 const CHANGES = /^\/v1\/changes\?since=(\d{1,16})$/u;
 const PUT_STATE = new RegExp(`^/v1/doc/(${DOC_ID})/state/([0-9a-f]{32})$`, 'u');
 
@@ -73,6 +76,11 @@ export function parseRequest(method: string, url: string): PhoneRequest | null {
   if (method === 'GET' && url === '/v1/hello') return { kind: 'hello' };
   if (method === 'POST' && url === '/v1/pair') return { kind: 'pair' };
   if (method === 'GET' && url === '/v1/library') return { kind: 'library' };
+  if (method === 'GET' && url === '/v1/inbox') return { kind: 'inbox' };
+  if (method === 'DELETE') {
+    const handled = HANDLED.exec(url);
+    if (handled) return { kind: 'handled', docId: handled[1]! };
+  }
   if (method === 'GET') {
     const changes = CHANGES.exec(url);
     if (changes) return { kind: 'changes', since: Number(changes[1]) };

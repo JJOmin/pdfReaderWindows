@@ -454,6 +454,18 @@ describe('change journals', () => {
     expect((await readJournal(DESKTOP))?.docs[DOC]).toBeDefined();
   });
 
+  it('carries "Send to phone" offers in the journal, and rewrites it only when they change', async () => {
+    const offers = { [PHONE]: [{ docId: DOC, name: 'paper.pdf', bytes: 100, sent: 7 }] };
+    await syncLibrary(store, key, root, DESKTOP, { memo, offers });
+    expect((await readJournal(DESKTOP))?.offers).toEqual(offers);
+    store.forget();
+    await syncLibrary(store, key, root, DESKTOP, { memo, offers });
+    expect(store.puts).toEqual([]);
+    await syncLibrary(store, key, root, DESKTOP, { memo, offers: {} });
+    expect(store.puts).toEqual([remotePath.journal(DESKTOP)]);
+    expect((await readJournal(DESKTOP))?.offers).toBeUndefined();
+  });
+
   it('writes this computer’s journal after the first sync, with the manifest’s time', async () => {
     const journal = await readJournal(DESKTOP);
     expect(journal?.name).toBe('Mac');

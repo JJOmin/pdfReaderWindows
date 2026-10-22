@@ -16,6 +16,7 @@ import {
   type JournalPart,
   type SyncStore,
 } from '../../shared/sync-store';
+import type { Inbox } from '../../shared/inbox';
 import type { NotesFile, SyncReport } from '../../shared/types';
 
 const DOC_ID = /^[0-9a-f]{64}$/;
@@ -34,9 +35,11 @@ export interface SyncMemo {
   seen: Record<string, { etag: string; journal: Journal }>;
   own: Record<string, JournalDoc>;
   synced: Record<string, { notes?: string; state?: string }>;
+  /** The offers this computer's journal carries, as JSON: a change rewrites the journal. */
+  offers: string;
 }
 
-export const newMemo = (): SyncMemo => ({ seen: {}, own: {}, synced: {} });
+export const newMemo = (): SyncMemo => ({ seen: {}, own: {}, synced: {}, offers: '{}' });
 
 /** Reads the memo; anything damaged is forgotten, which only means the next sync walks everything. */
 export function parseMemo(value: unknown): SyncMemo {
@@ -53,6 +56,8 @@ export function parseMemo(value: unknown): SyncMemo {
     }
   }
   memo.own = parseJournal({ device: 'f'.repeat(32), updated: 0, docs: input.own })?.docs ?? {};
+  if (typeof (input as { offers?: unknown }).offers === 'string')
+    memo.offers = (input as { offers: string }).offers;
   for (const [docId, raw] of record(input.synced)) {
     const entry = raw as { notes?: unknown; state?: unknown } | null;
     memo.synced[docId] = {
@@ -295,6 +300,8 @@ export interface SyncOptions {
   name?: string;
   /** Walk the whole store instead of what the journals say changed ("Refresh everything"). */
   full?: boolean;
+  /** "Send to phone": the offers to carry in this computer's journal, by phone. */
+  offers?: Inbox;
   /** Documents the user stopped syncing: left out, and out of the journal. */
   stopped?: ReadonlySet<string>;
   /** Told which documents' notes changed here, so that one that is open can show them. */
@@ -317,6 +324,7 @@ export async function syncLibrary(
     name = '',
     full = false,
     stopped = new Set<string>(),
+    offers = {},
     onNotesChanged = () => undefined,
   }: SyncOptions = {},
 ): Promise<SyncReport> {
@@ -400,15 +408,26 @@ export async function syncLibrary(
   ) {
     dirty = true;
   }
-  // Last, so that nobody is told of a part that is not in the store yet.
+  const offersJson = JSON.stringify(offers);
+  if (offersJson !== memo.offers) dirty = true;
+  if (walk && poll.own && JSON.stringify(poll.own.offers ?? {}) !== offersJson) dirty = true;
+  // Last, so that nobody is told of a part that is not in the store yet, nor offered a document
+  // that is not there.
   if (dirty) {
-    const journal: Journal = { device, name, updated: Date.now(), docs: own };
+    const journal: Journal = {
+      device,
+      name,
+      updated: Date.now(),
+      docs: own,
+      ...(Object.keys(offers).length > 0 ? { offers } : {}),
+    };
     const path = remotePath.journal(device);
     await store.put(path, await seal(key, path, new TextEncoder().encode(JSON.stringify(journal))));
   }
   // Only now are the journals of the others read: a sync that failed above reads them again.
   memo.own = own;
   memo.synced = nextSynced;
+  memo.offers = offersJson;
   Object.assign(memo.seen, poll.opened);
   return report;
 }

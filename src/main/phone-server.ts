@@ -14,6 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { selfSignedCertificate } from '../shared/certificate';
+import type { Offer } from '../shared/inbox';
 import {
   announcement,
   lanAddresses,
@@ -80,6 +81,11 @@ export interface PhoneServerOptions {
   /** The computer's name, shown in the phone's list of desktops. */
   name: string;
   box: { encrypt(text: string): string; decrypt(text: string): string };
+  /** "Send to phone": the offers for a phone, and taking one out when the phone handled it. */
+  inbox?: {
+    offers(device: string): Promise<Offer[]>;
+    handled(device: string, docId: string): Promise<void>;
+  };
   /** Asks the user whether to pair; resolves false when they decline or close the dialog. */
   askPair(phoneName: string): Promise<boolean>;
   /** The paired phones changed: a phone was paired. */
@@ -379,6 +385,12 @@ export class PhoneServer {
     // Only the step from away to connected is news for the dialog, not every poll.
     if (Date.now() - before > CONNECTED_MS) this.options.onChange?.();
 
+    if (parsed.kind === 'inbox')
+      return json(response, 200, (await this.options.inbox?.offers(phone.device)) ?? []);
+    if (parsed.kind === 'handled') {
+      await this.options.inbox?.handled(phone.device, parsed.docId);
+      return empty(response, 204);
+    }
     if (parsed.kind === 'changes') {
       // Taken before the files are read, so a write during the scan is reported again next time.
       const now = Date.now();

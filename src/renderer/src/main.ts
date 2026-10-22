@@ -530,6 +530,7 @@ const phoneStatus = (message: string, error = false): void => {
 };
 const showPreparing = (): void => {
   $<HTMLButtonElement>('#phone-add').disabled = preparing !== undefined || pdf.pageCount === 0;
+  $<HTMLButtonElement>('#send-phone').disabled = preparing !== undefined || pdf.pageCount === 0;
   $('#phone-cancel').hidden = preparing === undefined;
   void showSync();
 };
@@ -566,9 +567,11 @@ $('#open-phone').addEventListener('click', () => {
   showPreparing();
   $<HTMLDialogElement>('#phone').showModal();
   void phoneSync.open();
+  void showSendTargets();
 });
 $('#phone-cancel').addEventListener('click', () => preparing?.abort());
-$('#phone-add').addEventListener('click', () => {
+/** Prepares the open document for the phone. Resolves to whether it is ready (false when cancelled or failed). */
+function prepare(): Promise<boolean> {
   const job = new AbortController();
   preparing = job;
   showPreparing();
@@ -576,7 +579,7 @@ $('#phone-add').addEventListener('click', () => {
   $<HTMLDialogElement>('#phone').close();
   const name = $('#title').textContent;
   phoneStatus(`Phone: preparing ${name}`);
-  void prepareForPhone(
+  return prepareForPhone(
     {
       api,
       id: documentId,
@@ -599,14 +602,48 @@ $('#phone-add').addEventListener('click', () => {
         await phoneSync.run();
       }
       phoneProgressTimer = setTimeout(() => ($('#phone-progress').hidden = true), PHONE_RESULT_MS);
+      return !cancelled;
     })
-    .catch((error: unknown) =>
-      phoneStatus(`Phone: ${error instanceof Error ? error.message : String(error)}`, true),
-    )
+    .catch((error: unknown) => {
+      phoneStatus(`Phone: ${error instanceof Error ? error.message : String(error)}`, true);
+      return false;
+    })
     .finally(() => {
       preparing = undefined;
       showPreparing();
     });
+}
+$('#phone-add').addEventListener('click', () => void prepare());
+
+/** "Send to phone" (ADR 10 section 6): prepares the document if it is not yet, then offers it. */
+async function showSendTargets(): Promise<void> {
+  const targets = await api.sendTargets();
+  const select = $<HTMLSelectElement>('#send-target');
+  select.replaceChildren(
+    ...targets.map(({ device, name }) => {
+      const option = document.createElement('option');
+      option.value = device;
+      option.textContent = name;
+      return option;
+    }),
+  );
+  $('#send-row').hidden = targets.length === 0 || pdf.pageCount === 0;
+}
+$('#send-phone').addEventListener('click', () => {
+  const device = $<HTMLSelectElement>('#send-target').value;
+  void (async () => {
+    try {
+      phoneStatus(`Phone: sent to ${await api.sendToPhone(device)}; it asks there whether to download it.`);
+    } catch {
+      // Not prepared yet: prepare, then send.
+      if (!(await prepare())) return;
+      try {
+        phoneStatus(`Phone: sent to ${await api.sendToPhone(device)}; it asks there whether to download it.`);
+      } catch (error) {
+        phoneStatus(`Phone: ${error instanceof Error ? error.message : String(error)}`, true);
+      }
+    }
+  })();
 });
 
 const searchBox = $<HTMLInputElement>('#search');

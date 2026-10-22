@@ -15,6 +15,8 @@ import {
   type ProgressStore,
 } from '../shared/settings';
 import { AutoSync } from '../shared/auto-sync';
+import { addOffer, removeOffers } from '../shared/inbox';
+import { InboxFile } from './inbox-file';
 import { placeOffer, type DeviceState } from '../shared/phone-library';
 import type { SyncFacts } from '../shared/sync-state';
 import type {
@@ -22,6 +24,7 @@ import type {
   OpenedPdf,
   PlaceOffer,
   Settings,
+  SendTarget,
   SyncedDocument,
   SyncReport,
   SynthRequest,
@@ -84,6 +87,8 @@ const changedForStore = (): void => {
   syncChanged();
   auto.changed('content');
 };
+/** "Send to phone" (ADR 10 section 6). */
+const inbox = new InboxFile(join(app.getPath('userData'), 'inbox.json'));
 /** Syncs with the store by itself (ADR 10 section 3); `sync` is made below, and used only later. */
 const auto = new AutoSync({
   run: async () => {
@@ -95,6 +100,7 @@ const auto = new AutoSync({
 const sync = new SyncManager({
   configPath: join(app.getPath('userData'), 'sync.json'),
   memoPath: join(app.getPath('userData'), 'sync-memo.json'),
+  inbox,
   deviceName: hostname(),
   libraryRoot,
   box: secretBox,
@@ -118,6 +124,14 @@ const phones = new PhoneServer({
   dir: app.getPath('userData'),
   libraryRoot,
   name: computerName,
+  inbox: {
+    offers: async (device) => (await inbox.load())[device] ?? [],
+    handled: async (device, docId) => {
+      await inbox.update((offers) => removeOffers(offers, device, [docId]));
+      // The journal carries the offers too: a phone away from home must not see it again.
+      changedForStore();
+    },
+  },
   box: secretBox,
   askPair: (name) =>
     new Promise((resolve) => {
@@ -298,6 +312,14 @@ async function runStoreSync(full: boolean): Promise<SyncReport> {
   }
 }
 
+/** The phones a document can be sent to: paired over Wi-Fi, or known from their journals in the store. */
+async function sendTargets(): Promise<SendTarget[]> {
+  const targets = new Map<string, SendTarget>();
+  for (const { device, name } of await sync.devices()) targets.set(device, { device, name });
+  for (const { device, name } of (await phones.status()).phones) targets.set(device, { device, name });
+  return [...targets.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** The prepared documents, each with whether the user still syncs it. */
 async function syncedDocuments(): Promise<SyncedDocument[]> {
   const stopped = new Set(await sync.stopped());
@@ -437,6 +459,27 @@ function registerIpc(): void {
     return syncedDocuments();
   });
   ipcMain.handle('sync:run', (_event, full: unknown) => runStoreSync(full === true));
+  ipcMain.handle('inbox:targets', () => sendTargets());
+  ipcMain.handle('inbox:send', async (_event, device: unknown) => {
+    const doc = currentDoc;
+    const targets = await sendTargets();
+    const target = targets.find((t) => t.device === device);
+    if (!doc || !target) throw new Error('No document is open, or that phone is not known');
+    const manifest = await library.manifest(doc.docId);
+    if (!manifest) throw new Error('Prepare the document for the phone first');
+    await inbox.update((offers) =>
+      addOffer(offers, target.device, {
+        docId: doc.docId,
+        name: manifest.name,
+        bytes: manifest.bytes,
+        sent: Date.now(),
+      }),
+    );
+    // A document that is sent is synced from then on.
+    await sync.setStopped(doc.docId, false);
+    changedForStore();
+    return target.name;
+  });
   ipcMain.handle('phone:status', () => phones.status());
   ipcMain.handle('phone:enable', (_event, on: unknown) => phones.setEnabled(on).finally(syncChanged));
   ipcMain.handle('phone:remove', (_event, device: unknown) => phones.remove(device).finally(syncChanged));

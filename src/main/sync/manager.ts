@@ -14,6 +14,8 @@ import {
   type SyncStore,
 } from '../../shared/sync-store';
 import type { SyncReport, SyncStatus } from '../../shared/types';
+import { removeOffers } from '../../shared/inbox';
+import type { InboxFile } from '../inbox-file';
 import { newMemo, parseMemo, syncLibrary, type SyncMemo } from './engine';
 import { WebDavStore, nextcloudDavBase, nextcloudLogin } from './webdav';
 
@@ -30,6 +32,8 @@ export interface SyncOptions {
   box: { encrypt(text: string): string; decrypt(text: string): string };
   /** Opens an address in the user's own browser. */
   openUrl(url: string): void;
+  /** "Send to phone": its offers go in this computer's journal for phones away from home. */
+  inbox?: InboxFile;
   /** A document's notes changed here because of a sync: one that is open should show them. */
   onNotesChanged?(docId: string): void;
 }
@@ -121,6 +125,15 @@ export class SyncManager {
     return this.status(config);
   }
 
+  /** The other devices this computer knows from their journals in the store, by id, with their names. */
+  async devices(): Promise<{ device: string; name: string }[]> {
+    const { seen } = await this.loadMemo();
+    return Object.entries(seen).map(([device, { journal }]) => ({
+      device,
+      name: journal.name || device.slice(0, 8),
+    }));
+  }
+
   /** The documents the user stopped syncing. */
   async stopped(): Promise<string[]> {
     return (await this.load()).config.stopped;
@@ -200,8 +213,10 @@ export class SyncManager {
       const key = parseSyncKey(secrets.key ?? '');
       if (!key) throw new Error('There is no sync key');
       const memo = await this.loadMemo();
+      const inbox = this.options.inbox;
       const report = await syncLibrary(store, key, this.options.libraryRoot, config.deviceId, {
         memo,
+        offers: await inbox?.load(),
         full,
         stopped: new Set(config.stopped),
         name: this.options.deviceName,
@@ -209,6 +224,16 @@ export class SyncManager {
       });
       // Saved only when the sync finished, so a failed one is repeated from the same journals.
       await writeFile(this.options.memoPath, JSON.stringify(memo));
+      // A phone whose journal lists an offered document has it: the offer is done. The next sync
+      // writes the journal without it.
+      await inbox?.update((offers) => {
+        let next = offers;
+        for (const device of Object.keys(offers)) {
+          const held = Object.keys(memo.seen[device]?.journal.docs ?? {});
+          next = removeOffers(next, device, held);
+        }
+        return next;
+      });
       return report;
     } finally {
       this.running = false;

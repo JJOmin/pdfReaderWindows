@@ -196,6 +196,12 @@ export interface SyncStatus {
   auto: boolean;
 }
 
+/** A phone a document can be sent to (ADR 10 section 6). */
+export interface SendTarget {
+  device: string;
+  name: string;
+}
+
 /** A document in the phone library, for the list of what is synced. */
 export interface SyncedDocument {
   docId: string;
@@ -298,6 +304,10 @@ export interface Api {
   phoneRemove(device: string): Promise<PhoneServerStatus>;
   /** The Phone dialog opened or closed: pairing requests are answered only while it is open. */
   phonePairing(open: boolean): Promise<void>;
+  /** The phones the open document can be sent to. */
+  sendTargets(): Promise<SendTarget[]>;
+  /** Offers the open, prepared document to a phone; it asks its user. Resolves to the phone's name. */
+  sendToPhone(device: string): Promise<string>;
   /** A phone asks to pair (answer with `phoneAnswer`), or the paired phones changed. */
   onPhoneEvent(listener: (event: PhoneEvent) => void): void;
   phoneAnswer(accept: boolean): Promise<void>;

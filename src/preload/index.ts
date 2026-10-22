@@ -33,6 +33,8 @@ const api: Api = {
   phoneServerEnable: (on) => ipcRenderer.invoke('phone:enable', on),
   phoneRemove: (device) => ipcRenderer.invoke('phone:remove', device),
   phonePairing: (open) => ipcRenderer.invoke('phone:pairing', open),
+  sendTargets: () => ipcRenderer.invoke('inbox:targets'),
+  sendToPhone: (device) => ipcRenderer.invoke('inbox:send', device),
   onPhoneEvent: (listener) => {
     ipcRenderer.on('phone:pair', (_event, name: unknown) => {
       if (typeof name === 'string') listener({ kind: 'pair', name });

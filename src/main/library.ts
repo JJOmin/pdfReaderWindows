@@ -119,16 +119,21 @@ export class PhoneLibrary {
     await writeFile(join(folder, 'manifest.json'), JSON.stringify(manifest, null, 2));
   }
 
-  /** Whether the document is prepared whole: the manifest is written last. */
-  async isPrepared(docId: string): Promise<boolean> {
+  /** The manifest of a whole document, or null: the manifest is written last. */
+  async manifest(docId: string): Promise<Manifest | null> {
     try {
       const manifest = parseManifest(
         JSON.parse(await readFile(join(this.root, docId, 'manifest.json'), 'utf8')),
       );
-      return manifest?.docId === docId;
+      return manifest?.docId === docId ? manifest : null;
     } catch {
-      return false;
+      return null;
     }
+  }
+
+  /** Whether the document is prepared whole. */
+  async isPrepared(docId: string): Promise<boolean> {
+    return (await this.manifest(docId)) !== null;
   }
 
   /** The prepared documents, by name. */

@@ -250,6 +250,13 @@ describe('change journal', () => {
     expect(read?.name).toBe('');
   });
 
+  it('carries the offers of "Send to phone", and leaves them out when there are none', () => {
+    const offer = { docId: DOC_A, name: 'paper.pdf', bytes: 12, sent: 5 };
+    const withOffers = { ...journal({ [DOC_A]: [1, 2, 3] }), offers: { ['e'.repeat(32)]: [offer] } };
+    expect(parseJournal(JSON.parse(JSON.stringify(withOffers)))).toEqual(withOffers);
+    expect(JSON.stringify(parseJournal({ ...withOffers, offers: {} }))).not.toContain('offers');
+  });
+
   it('finds nothing when nothing changed', () => {
     const j = journal({ [DOC_A]: [1, 2, 3] });
     expect(changedParts(j, structuredClone(j)).size).toBe(0);

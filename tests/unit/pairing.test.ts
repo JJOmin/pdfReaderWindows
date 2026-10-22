@@ -272,6 +272,13 @@ describe('changes since', () => {
     expect(changesSince(docs, 51, 99).docs).toEqual({});
   });
 
+  it('asks for the inbox and says an offer is handled', () => {
+    expect(parseRequest('GET', '/v1/inbox')).toEqual({ kind: 'inbox' });
+    expect(parseRequest('DELETE', `/v1/inbox/${DOC}`)).toEqual({ kind: 'handled', docId: DOC });
+    expect(parseRequest('DELETE', '/v1/inbox/x')).toBeNull();
+    expect(parseRequest('GET', `/v1/inbox/${DOC}`)).toBeNull();
+  });
+
   it('keeps announcing version 1, which older phones check for', () => {
     expect(parseAnnouncement(announcement('PC', 47613))).toEqual({ name: 'PC', port: 47613 });
     expect(JSON.parse(new TextDecoder().decode(announcement('PC', 1)))).toMatchObject({ protocol: 1 });

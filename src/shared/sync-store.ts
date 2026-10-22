@@ -3,6 +3,7 @@
  * audio pack, and the encryption that keeps the provider from reading anything.
  * Uses Web Crypto only, which Node and the browser both have, so this file needs no Node APIs.
  */
+import { parseInbox, type Inbox } from './inbox.ts';
 
 export interface RemoteEntry {
   name: string;
@@ -65,6 +66,8 @@ export interface Journal {
   name: string;
   updated: number;
   docs: Record<string, JournalDoc>;
+  /** "Send to phone": what this device offers each phone, by the phone's id. Left out when empty. */
+  offers?: Inbox;
 }
 
 const DEVICE_ID = /^[0-9a-f]{32}$/;
@@ -91,7 +94,10 @@ export function parseJournal(value: unknown): Journal | null {
     }
   }
   const name = typeof input.name === 'string' && input.name.length <= 256 ? input.name : '';
-  return { device: input.device, name, updated, docs };
+  const offers = parseInbox(input.offers);
+  return Object.keys(offers).length > 0
+    ? { device: input.device, name, updated, docs, offers }
+    : { device: input.device, name, updated, docs };
 }
 
 /**
