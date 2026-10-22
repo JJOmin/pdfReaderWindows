@@ -1,10 +1,12 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import type { Api, NotesFile } from '../shared/types';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import type { Api, NotesFile, OpenedPdf } from '../shared/types';
 
 // The renderer gets these calls and nothing else: no file system, no arbitrary IPC.
 const api: Api = {
   openPdf: () => ipcRenderer.invoke('pdf:open'),
   openInitial: () => ipcRenderer.invoke('pdf:initial'),
+  // The path stays here: the renderer hands over the dropped file and never sees where it is.
+  openDropped: (file) => ipcRenderer.invoke('pdf:open-path', webUtils.getPathForFile(file)),
   saveNotes: (notes) => ipcRenderer.invoke('notes:save', notes),
   exportMarkdown: (markdown) => ipcRenderer.invoke('notes:export', markdown),
   exportPdf: (marks, notes) => ipcRenderer.invoke('pdf:export', marks, notes),
@@ -35,6 +37,9 @@ const api: Api = {
     ipcRenderer.on('phone:changed', () => listener({ kind: 'changed' }));
   },
   phoneAnswer: (accept) => ipcRenderer.invoke('phone:answer', accept),
+  onOpened: (listener) => {
+    ipcRenderer.on('pdf:opened', (_event, opened: OpenedPdf) => listener(opened));
+  },
   onNotesChanged: (listener) => {
     ipcRenderer.on('notes:changed', (_event, notes: unknown) => listener(notes as NotesFile));
   },

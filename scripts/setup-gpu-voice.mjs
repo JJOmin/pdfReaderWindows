@@ -8,6 +8,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+if (process.platform === 'darwin') {
+  console.error(
+    'The GPU voice needs an NVIDIA GPU, which a Mac does not have (ADR 9). The other voices work.',
+  );
+  process.exit(1);
+}
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const modelsDir = process.env.PDFREADER_MODELS ?? join(root, 'models');
 const envDir = join(modelsDir, 'xtts-env');

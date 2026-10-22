@@ -420,11 +420,15 @@ const ZOOM_KEYS = {
   numpadMinus: ['-', 'NumpadSubtract', 0x6d],
 } as const;
 
-/** Presses a key with Ctrl held, below the page, so the browser's own shortcuts see it too. */
+/**
+ * Presses a key with Ctrl held (Cmd on the Mac), below the page, so the browser's own shortcuts
+ * see it too. CDP's modifier bits: 2 is Ctrl, 4 is Meta.
+ */
 async function ctrlKey(key: keyof typeof ZOOM_KEYS): Promise<void> {
   input ??= await page.context().newCDPSession(page);
   const [text, code, vk] = ZOOM_KEYS[key];
-  const event = { key: text, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers: 2 };
+  const modifiers = process.platform === 'darwin' ? 4 : 2;
+  const event = { key: text, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers };
   await input.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...event });
   await input.send('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
 }

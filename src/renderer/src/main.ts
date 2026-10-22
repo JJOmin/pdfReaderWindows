@@ -124,7 +124,7 @@ function currentProgress(): Progress | null {
   const placed = view === pdf ? pdf.laidOut : reading.settled;
   return {
     view: view === pdf ? 'pdf' : 'reading',
-    zoom: pdf.laidOut ? Math.round(pdf.scale * 1000) / 1000 : base.zoom,
+    zoom: pdf.laidOut ? (pdf.fitsWidth ? null : Math.round(pdf.scale * 1000) / 1000) : base.zoom,
     ...(placed ? view.scrollAnchor() : { page: base.page, offset: base.offset }),
     sentence: lastSentence,
   };
@@ -283,6 +283,9 @@ async function show(opened: OpenedPdf | null): Promise<void> {
   offerPlace(opened.offer);
   document.title = `${opened.name} – PDF Reader`;
   $('#title').textContent = opened.name;
+  $('#title').title = opened.name;
+  $('#empty').hidden = true;
+  fitToolbar();
   notes.load(opened.name, opened.notes);
   $<HTMLInputElement>('#search').value = '';
   void search.find('');
@@ -386,10 +389,93 @@ $('#next').addEventListener('click', () => void reader.skip(1));
 $('#zoom-in').addEventListener('click', () => zoom(1));
 $('#zoom-out').addEventListener('click', () => zoom(-1));
 $('#toggle-reading').addEventListener('click', () => setView(view === pdf ? reading : pdf));
-$('#toggle-sidebar').addEventListener('click', (event) => {
-  const sidebar = $('#sidebar');
-  sidebar.hidden = !sidebar.hidden;
-  (event.currentTarget as HTMLElement).setAttribute('aria-pressed', String(!sidebar.hidden));
+$('#empty-open').addEventListener('click', () => void open());
+
+// The notes panel. In a narrow window it lies over the page, so it starts closed there and
+// closes when the window becomes narrow. The button shows whether it is open, whoever opened it.
+const sidebar = $('#sidebar');
+const narrow = matchMedia('(max-width: 979px)');
+new MutationObserver(() => {
+  $('#toggle-sidebar').setAttribute('aria-pressed', String(!sidebar.hidden));
+}).observe(sidebar, { attributes: true, attributeFilter: ['hidden'] });
+if (narrow.matches) sidebar.hidden = true;
+narrow.addEventListener('change', () => {
+  if (narrow.matches) sidebar.hidden = true;
+});
+$('#toggle-sidebar').addEventListener('click', () => (sidebar.hidden = !sidebar.hidden));
+
+// The toolbar keeps one row: items that do not fit move into the "⋯" menu, the highest
+// data-overflow first, and come back when there is room. A comment marks each item's place.
+const toolbar = $('#toolbar');
+const more = $('#more');
+const moreMenu = $('#more-menu');
+const movable = [...toolbar.querySelectorAll<HTMLElement>('[data-overflow]')]
+  .map((element) => {
+    const home = document.createComment(element.id || 'toolbar item');
+    element.before(home);
+    return { element, home, rank: Number(element.dataset.overflow) };
+  })
+  .sort((a, b) => b.rank - a.rank);
+
+function showMore(open: boolean): void {
+  moreMenu.hidden = !open;
+  more.setAttribute('aria-expanded', String(open));
+}
+
+function fitToolbar(): void {
+  for (const { element, home } of movable) home.after(element);
+  more.hidden = true;
+  const overflows = (): boolean => toolbar.scrollWidth > toolbar.clientWidth;
+  if (!overflows()) {
+    showMore(false);
+    return;
+  }
+  more.hidden = false;
+  const moved = [];
+  for (const item of movable) {
+    if (!overflows()) break;
+    moreMenu.append(item.element);
+    moved.push(item);
+  }
+  // In the menu they keep the toolbar's order.
+  moved.sort((a, b) => (a.home.compareDocumentPosition(b.home) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  for (const { element } of moved) moreMenu.append(element);
+}
+
+new ResizeObserver(fitToolbar).observe(toolbar);
+more.addEventListener('click', () => showMore(more.getAttribute('aria-expanded') !== 'true'));
+// A button that opens something closes the menu; zoom and the slider keep it open for more steps.
+moreMenu.addEventListener('click', (event) => {
+  if ((event.target as Element).parentElement === moreMenu) showMore(false);
+});
+document.addEventListener('pointerdown', (event) => {
+  if (!moreMenu.hidden && !toolbar.contains(event.target as Node)) showMore(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !moreMenu.hidden) {
+    showMore(false);
+    more.focus();
+  }
+});
+
+// A PDF dragged from Finder or Explorer onto the window opens there.
+const draggingFiles = (event: DragEvent): boolean => event.dataTransfer?.types.includes('Files') ?? false;
+document.addEventListener('dragover', (event) => {
+  if (!draggingFiles(event)) return;
+  event.preventDefault();
+  event.dataTransfer!.dropEffect = 'copy';
+  document.body.classList.add('dropping');
+});
+document.addEventListener('dragleave', (event) => {
+  if (event.relatedTarget === null) document.body.classList.remove('dropping');
+});
+document.addEventListener('drop', (event) => {
+  document.body.classList.remove('dropping');
+  if (!draggingFiles(event)) return;
+  event.preventDefault();
+  const file = [...event.dataTransfer!.files].find((f) => /\.pdf$/iu.test(f.name));
+  if (file) void api.openDropped(file).then(show);
+  else status('Only PDF files can be opened.', true);
 });
 reading.bindControls(settings.reading, saveSettings);
 
@@ -508,24 +594,39 @@ searchBox.addEventListener('keydown', (event) => {
 $('#search-prev').addEventListener('click', () => search.step(-1));
 $('#search-next').addEventListener('click', () => search.step(1));
 
+// Shortcuts take Cmd on the Mac and Ctrl elsewhere. A pinch on a Mac's touchpad still arrives as
+// Ctrl+wheel, so zoomByWheel keeps Ctrl.
+const MAC = navigator.userAgent.includes('Macintosh');
+const command = (event: KeyboardEvent): boolean => (MAC ? event.metaKey : event.ctrlKey);
+if (MAC) {
+  for (const element of document.querySelectorAll<HTMLElement>('[title*="Ctrl+"], [placeholder*="Ctrl+"]')) {
+    if (element.title) element.title = element.title.replaceAll('Ctrl+', '⌘');
+    const input = element as HTMLInputElement;
+    if (input.placeholder) input.placeholder = input.placeholder.replaceAll('Ctrl+', '⌘');
+  }
+}
+
 document.addEventListener('keydown', (event) => {
   const typing = (event.target as Element).closest('textarea, input, select, dialog');
   if (event.code === 'Space' && !typing) {
     event.preventDefault();
     playPause();
-  } else if (event.ctrlKey && event.key === 'o') void open();
-  else if (event.ctrlKey && event.key === 'f') {
+  } else if (!MAC && event.ctrlKey && event.key === 'o') {
+    // On the Mac the File menu's Open… has Cmd+O.
+    void open();
+  } else if (command(event) && event.key === 'f') {
     event.preventDefault();
     searchBox.select();
-  } else if (event.ctrlKey && (event.key === '+' || event.key === '=')) {
+  } else if (command(event) && (event.key === '+' || event.key === '=')) {
     // Taken here so that nothing else, such as a menu shortcut, zooms the whole window too.
     event.preventDefault();
     zoom(1);
-  } else if (event.ctrlKey && event.key === '-') {
+  } else if (command(event) && event.key === '-') {
     event.preventDefault();
     zoom(-1);
   }
 });
 
 if (voices.length === 0) status('No speech models are installed. Run "npm run models", then restart.', true);
+api.onOpened((opened) => void show(opened));
 void api.openInitial().then(show);

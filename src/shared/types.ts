@@ -225,6 +225,8 @@ export type PhoneEvent = { kind: 'pair'; name: string } | { kind: 'changed' };
 export interface Api {
   openPdf(): Promise<OpenedPdf | null>;
   openInitial(): Promise<OpenedPdf | null>;
+  /** A PDF dropped on the window. */
+  openDropped(file: File): Promise<OpenedPdf | null>;
   saveNotes(notes: NotesFile): Promise<void>;
   exportMarkdown(markdown: string): Promise<string | null>;
   /** Asks where to save, then writes a copy of the PDF with the marks as standard annotations. */
@@ -273,6 +275,8 @@ export interface Api {
   /** A phone asks to pair (answer with `phoneAnswer`), or the paired phones changed. */
   onPhoneEvent(listener: (event: PhoneEvent) => void): void;
   phoneAnswer(accept: boolean): Promise<void>;
+  /** A PDF opened from outside the window, from Finder or the Mac's File menu: show it. */
+  onOpened(listener: (opened: OpenedPdf) => void): void;
   /** A phone's marks were merged into the open document's notes: show these. */
   onNotesChanged(listener: (notes: NotesFile) => void): void;
 }

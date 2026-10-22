@@ -15,19 +15,21 @@
         <button id="play" class="primary" title="Read aloud (Space)" aria-label="Read aloud">▶</button>
         <button id="next" title="Next sentence" aria-label="Next sentence">⏭</button>
         <button id="stop" title="Stop reading" aria-label="Stop reading">⏹</button>
-        <label title="Reading speed">
+        <label title="Reading speed" data-overflow="4">
+          <span class="menu-label">Speed</span>
           <input id="speed" type="range" min="0.6" max="2" step="0.05" aria-label="Reading speed" />
           <output id="speed-value"></output>
         </label>
       </div>
 
-      <div class="group" role="group" aria-label="View">
+      <div class="group" role="group" aria-label="View" data-overflow="5">
+        <span class="menu-label">Zoom</span>
         <button id="zoom-out" title="Smaller (Ctrl+-)" aria-label="Smaller">−</button>
         <button id="zoom-in" title="Larger (Ctrl++)" aria-label="Larger">+</button>
         <span id="page-info"></span>
       </div>
 
-      <div class="group" role="search">
+      <div class="group" role="search" data-overflow="2">
         <input id="search" type="search" placeholder="Search (Ctrl+F)" aria-label="Search the document" />
         <button id="search-prev" title="Previous match (Shift+Enter)" aria-label="Previous match">↑</button>
         <button id="search-next" title="Next match (Enter)" aria-label="Next match">↓</button>
@@ -37,6 +39,7 @@
       <span class="spacer"></span>
       <button
         id="focus-mode"
+        data-overflow="8"
         aria-pressed="false"
         title="While reading aloud, keep the spoken sentence in the middle of the view"
       >
@@ -44,19 +47,24 @@
       </button>
       <button
         id="toggle-reading"
+        data-overflow="3"
         aria-pressed="false"
         title="Show the text alone, in a font and size you choose"
       >
         Reading view
       </button>
-      <button id="open-voices">Voices</button>
-      <button id="open-phone">Phone</button>
+      <button id="open-voices" data-overflow="7">Voices</button>
+      <button id="open-phone" data-overflow="6">Phone</button>
       <svg id="phone-syncing" hidden viewBox="0 0 24 24" aria-label="Preparing for the phone" role="img">
         <path
           d="M12 4a8 8 0 0 1 7.4 5H16v2h7V4h-2v3.1A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8zm8 8a8 8 0 0 1-15.4 3H8v-2H1v7h2v-3.1A10 10 0 0 0 22 12h-2z"
         />
       </svg>
-      <button id="toggle-sidebar" aria-pressed="true">Notes</button>
+      <button id="toggle-sidebar" data-overflow="1" aria-pressed="true">Notes</button>
+      <button id="more" hidden aria-haspopup="true" aria-expanded="false" title="More" aria-label="More">
+        ⋯
+      </button>
+      <div id="more-menu" hidden></div>
     </header>
 
     <div id="place-offer" role="status" hidden>
@@ -68,6 +76,11 @@
     <main>
       <div id="viewer-container">
         <div id="scroller"><div id="pages" class="pdfViewer"></div></div>
+        <div id="empty">
+          <p>Open a PDF to read it, mark it and hear it read aloud.</p>
+          <button id="empty-open" class="primary">Open a PDF</button>
+          <p class="hint">or drop one into this window</p>
+        </div>
       </div>
 
       <div id="reading" hidden>

@@ -161,6 +161,12 @@ export class Pdf implements TextView {
     });
     this.links.setViewer(this.viewer);
     this.events.on('pagesinit', () => this.fit());
+    // Pages fitted to the width stay fitted when the window or the notes change the view's width.
+    new ResizeObserver(() => {
+      if (this.laidOut && this.fitsWidth && this.container.clientWidth > 0) {
+        this.viewer.currentScaleValue = 'page-width';
+      }
+    }).observe(this.container);
   }
 
   get pageCount(): number {
@@ -169,6 +175,11 @@ export class Pdf implements TextView {
 
   get currentPage(): number {
     return this.viewer.currentPageNumber;
+  }
+
+  /** True while the pages are fitted to the view's width, not zoomed by the user. */
+  get fitsWidth(): boolean {
+    return this.viewer.currentScaleValue === 'page-width';
   }
 
   /** The zoom of the pages as PDF.js counts it: 1 is 100 %. */

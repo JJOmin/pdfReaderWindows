@@ -214,6 +214,37 @@ async function loadPdf(path: string): Promise<OpenedPdf> {
   };
 }
 
+/** A PDF from Finder or the File menu that waits for a window to ask for it. */
+let pendingPath: string | undefined;
+/** False from creating a window until its page asked for its first document. */
+let windowReady = false;
+/** The PDF named on the command line is opened by the first window only. */
+let argvUsed = false;
+
+/**
+ * Opens a PDF that did not come from the window's own Open button: from Finder (`open-file`)
+ * or the Mac's File menu. A window that is up shows it at once; otherwise it waits for one.
+ */
+function openFile(path: string): void {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (window && windowReady) {
+    void loadPdf(path).then((opened) => window.webContents.send('pdf:opened', opened));
+    window.show();
+    return;
+  }
+  pendingPath = path;
+  if (!window && app.isReady()) createWindow();
+}
+
+async function chooseAndOpen(): Promise<void> {
+  const window = BrowserWindow.getAllWindows()[0];
+  const options = { properties: ['openFile' as const], filters: [{ name: 'PDF', extensions: ['pdf'] }] };
+  const { filePaths } = await (window
+    ? dialog.showOpenDialog(window, options)
+    : dialog.showOpenDialog(options));
+  if (filePaths[0]) openFile(filePaths[0]);
+}
+
 function registerIpc(): void {
   ipcMain.handle('pdf:open', async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)!;
@@ -223,8 +254,18 @@ function registerIpc(): void {
     });
     return filePaths[0] ? loadPdf(filePaths[0]) : null;
   });
+  // The preload sends the path of a file dropped on the window; anything else is refused.
+  ipcMain.handle('pdf:open-path', (_event, path: unknown) =>
+    typeof path === 'string' && /\.pdf$/iu.test(path) && existsSync(path) ? loadPdf(path) : null,
+  );
   ipcMain.handle('pdf:initial', () => {
-    const path = process.argv.slice(1).find((arg) => /\.pdf$/iu.test(arg) && existsSync(arg));
+    windowReady = true;
+    const fromArgv = argvUsed
+      ? undefined
+      : process.argv.slice(1).find((arg) => /\.pdf$/iu.test(arg) && existsSync(arg));
+    argvUsed = true;
+    const path = pendingPath ?? fromArgv;
+    pendingPath = undefined;
     return path ? loadPdf(path) : null;
   });
   ipcMain.handle('progress:save', async (_event, id: unknown, value: unknown) => {
@@ -346,16 +387,46 @@ function registerIpc(): void {
   );
 }
 
+/**
+ * The Mac's menu bar, which is always shown: the standard menus plus File, Open…. Windows keeps
+ * Electron's default menu, hidden until Alt is pressed.
+ */
+function macMenu(): Menu {
+  return Menu.buildFromTemplate([
+    { role: 'appMenu' },
+    {
+      label: 'File',
+      submenu: [
+        { id: 'open', label: 'Open…', accelerator: 'Cmd+O', click: () => void chooseAndOpen() },
+        { type: 'separator' },
+        { role: 'close' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+  ]);
+}
+
 function createWindow(): void {
+  windowReady = false;
   const window = new BrowserWindow({
     width: 1400,
     height: 950,
+    // Below this the toolbar's own row and a readable page no longer fit.
+    minWidth: 480,
+    minHeight: 360,
     show: false,
     autoHideMenuBar: true,
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), sandbox: true },
   });
   // The place in the document is written at most once a second, so the last change may still be waiting.
   window.on('close', writeProgress);
+  // On the Mac the app outlives its window; nothing is shown, so nothing may be written for it.
+  window.on('closed', () => {
+    currentPdf = undefined;
+    currentDoc = undefined;
+  });
   window.once('ready-to-show', () => {
     // The document zooms on its own. The default menu's zoom items would scale the toolbar
     // too, by key and from the menu bar, so they are switched off.
@@ -391,11 +462,23 @@ void app.whenReady().then(() => {
     return new Response(file.body, { status: file.status, headers });
   });
   registerIpc();
+  if (process.platform === 'darwin') Menu.setApplicationMenu(macMenu());
   createWindow();
   void phones.start();
 });
 
-app.on('window-all-closed', () => app.quit());
+// A Mac app keeps running without a window (ADR 9): the Dock icon opens one again.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+app.on('activate', () => {
+  if (app.isReady() && BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+// Finder's Open With, a double click and a drop on the Dock icon; it can come before the app is ready.
+app.on('open-file', (event, path) => {
+  event.preventDefault();
+  openFile(path);
+});
 // The GPU voice's helper holds GPU memory until it is told to go.
 app.on('will-quit', () => {
   tts.close();
