@@ -1,6 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseManifest, parsePageIndex, type PageIndex } from '../../src/shared/phone-library.ts';
@@ -47,28 +47,32 @@ const decodedMs = (file: Buffer): Promise<number> =>
     return audio.duration * 1000;
   }, file.toString('base64'));
 
-test('Add this document writes the phone library', async () => {
+test('an opened PDF is in the library at once, and its audio is written page by page without a click', async () => {
   await expect(page.locator('#page-info')).toHaveText('1 / 2');
-  await page.click('#open-phone');
-  await page.click('#phone-add');
-  // The dialog closes; the job shows at the bottom of the window and on the sync button.
-  await expect(page.locator('#phone')).not.toBeVisible();
-  await expect(page.locator('#open-phone')).toHaveAttribute('data-state', 'syncing');
-  await expect(page.locator('#phone-progress')).toContainText('Phone: preparing sample.pdf');
+  const pdf = readFileSync(fixture);
+  const docId = createHash('sha256').update(pdf).digest('hex');
+  const folder = join(dir, 'profile', 'phone-library', docId);
+  // The PDF and a manifest before any audio is done (ADR 11).
+  await expect.poll(() => existsSync(join(folder, 'manifest.json'))).toBe(true);
+  expect(readFileSync(join(folder, 'document.pdf')).equals(pdf)).toBe(true);
+  const early = parseManifest(JSON.parse(readFileSync(join(folder, 'manifest.json'), 'utf8')));
+  expect(early).toMatchObject({ docId, name: 'sample.pdf', pages: 2 });
+  expect(early!.voiced.length).toBeLessThan(2);
+  // The job shows at the bottom of the window, with its pause button, and on the sync button.
+  await expect(page.locator('#phone-progress')).toContainText('Audio for the phone: page');
+  await expect(page.locator('#audio-pause')).toBeVisible();
   await expect(page.locator('#phone-progress')).toContainText('sample.pdf is ready', { timeout: 170_000 });
+  await expect(page.locator('#audio-pause')).toBeHidden();
   // Nothing to sync with yet: no phone is paired and no store is signed in.
   await expect(page.locator('#open-phone')).toHaveAttribute('data-state', 'off');
   await page.click('#open-phone');
   await expect(page.locator('#phone-add')).toBeEnabled();
   await expect(page.locator('#phone-cancel')).toBeHidden();
-
-  const pdf = readFileSync(fixture);
-  const docId = createHash('sha256').update(pdf).digest('hex');
-  const folder = join(dir, 'profile', 'phone-library', docId);
-  expect(readFileSync(join(folder, 'document.pdf')).equals(pdf)).toBe(true);
+  await page.keyboard.press('Escape');
 
   const manifest = parseManifest(JSON.parse(readFileSync(join(folder, 'manifest.json'), 'utf8')));
-  expect(manifest).toMatchObject({ docId, name: 'sample.pdf', pages: 2 });
+  expect(manifest).toMatchObject({ docId, name: 'sample.pdf', pages: 2, voiced: [1, 2] });
+  expect(manifest!.voices).toMatch(/^[0-9a-f]{16}$/u);
 
   const indexes: PageIndex[] = [];
   for (const { page: n, wordCount, wordsHash } of golden.pages) {
@@ -108,10 +112,21 @@ test('Add this document writes the phone library', async () => {
   expect(pageErrors).toEqual([]);
 });
 
+test('pausing stops the rendering, and resuming goes on', async () => {
+  await page.click('#open-phone');
+  await page.click('#phone-add');
+  await expect(page.locator('#audio-pause')).toHaveText('Pause audio');
+  await page.click('#audio-pause');
+  await expect(page.locator('#phone-progress')).toContainText('paused');
+  await expect(page.locator('#audio-pause')).toHaveText('Resume audio');
+  await page.click('#audio-pause');
+  await expect(page.locator('#phone-progress')).toContainText('is ready', { timeout: 170_000 });
+  expect(pageErrors).toEqual([]);
+});
+
 // ADR 8: the sync part of the dialog. Signing in itself needs a browser and is covered by the unit
 // tests against stand-ins for the two services.
 test('the sync section starts signed out and checks what is typed', async () => {
-  await page.click('#phone button:has-text("Close")');
   await page.click('#open-phone');
   await expect(page.locator('#sync-account')).toHaveText('Not signed in.');
   await expect(page.locator('#sync-connected')).toBeHidden();

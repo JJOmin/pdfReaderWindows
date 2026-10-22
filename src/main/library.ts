@@ -60,16 +60,56 @@ export class PhoneLibrary {
   }
 
   /**
-   * Writes a page's index once its audio is there. The last page completes the document: the
-   * PDF is copied, audio no index refers to is removed, and the manifest is written.
+   * Puts an opened PDF in the library at once, without audio (ADR 11): the PDF and a manifest that
+   * says no page is voiced yet. A document already there is left as it is.
    */
-  async addPage(doc: LibraryDocument, page: unknown, pages: unknown, sentences: unknown): Promise<void> {
+  async add(doc: LibraryDocument, pages: unknown): Promise<Manifest> {
+    if (!Number.isInteger(pages) || (pages as number) < 1 || (pages as number) > MAX_PAGES) {
+      throw new Error('Invalid page count');
+    }
+    const held = await this.manifest(doc.docId);
+    if (held) return held;
+    const folder = this.folder(doc);
+    const pdf = await readFile(doc.path);
+    // The library is keyed by these bytes, so a file changed since it was opened must not go in.
+    if (sha256(pdf) !== doc.docId) throw new Error(`${doc.name} changed on disk. Open it again.`);
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, 'document.pdf'), pdf);
+    const manifest: Manifest = {
+      version: LIBRARY_VERSION,
+      docId: doc.docId,
+      name: doc.name,
+      pages: pages as number,
+      sentences: 0,
+      bytes: pdf.length,
+      updated: Date.now(),
+      voiced: [],
+      voices: '',
+    };
+    await writeFile(join(folder, 'manifest.json'), JSON.stringify(manifest, null, 2));
+    return manifest;
+  }
+
+  /**
+   * Writes a page's index once its audio is there, and the manifest with it, so that the page goes
+   * to the phones at once (ADR 11). `voices` names the voices that made it: the first page of other
+   * voices starts over, and the pages of the old ones are dropped. Audio no page refers to is removed
+   * once every page is voiced.
+   */
+  async addPage(
+    doc: LibraryDocument,
+    page: unknown,
+    pages: unknown,
+    sentences: unknown,
+    voices: unknown,
+  ): Promise<void> {
     if (!Number.isInteger(pages) || (pages as number) < 1 || (pages as number) > MAX_PAGES) {
       throw new Error('Invalid page count');
     }
     if (!Number.isInteger(page) || (page as number) < 1 || (page as number) > (pages as number)) {
       throw new Error('Invalid page');
     }
+    if (typeof voices !== 'string' || !/^[0-9a-f]{1,64}$/u.test(voices)) throw new Error('Invalid voices');
     const prepared = parsePreparedPage(sentences);
     const index = prepared && buildPageIndex(prepared, sha256);
     if (!index) throw new Error(`Page ${page as number} cannot be indexed`);
@@ -77,49 +117,37 @@ export class PhoneLibrary {
     for (const { key } of index.sentences) {
       if (!existsSync(join(folder, 'audio', `${key}.opus`))) throw new Error(`No audio for sentence ${key}`);
     }
+    const held = (await this.manifest(doc.docId)) ?? (await this.add(doc, pages));
+    const fresh = held.voices !== voices;
+    if (fresh) await rm(join(folder, 'pages'), { recursive: true, force: true });
     await mkdir(join(folder, 'pages'), { recursive: true });
     await writeFile(join(folder, 'pages', `${page as number}.json`), JSON.stringify(index));
-    if (page === pages) await this.complete(doc, pages as number);
-  }
-
-  private async complete(doc: LibraryDocument, pages: number): Promise<void> {
-    const folder = this.folder(doc);
-    const pdf = await readFile(doc.path);
-    // The library is keyed by these bytes, so a file changed since it was opened must not go in.
-    if (sha256(pdf) !== doc.docId) throw new Error(`${doc.name} changed on disk. Open it again.`);
-    await writeFile(join(folder, 'document.pdf'), pdf);
+    const voiced = [...new Set([...(fresh ? [] : held.voiced), page as number])].sort((a, b) => a - b);
 
     const used = new Set<string>();
-    let sentences = 0;
-    for (let page = 1; page <= pages; page++) {
-      const index = parsePageIndex(JSON.parse(await readFile(join(folder, 'pages', `${page}.json`), 'utf8')));
-      if (!index) throw new Error(`The index of page ${page} is not valid`);
-      sentences += index.sentences.length;
-      for (const { key } of index.sentences) used.add(key);
+    let count = 0;
+    for (const p of voiced) {
+      const each = parsePageIndex(JSON.parse(await readFile(join(folder, 'pages', `${p}.json`), 'utf8')));
+      if (!each) throw new Error(`The index of page ${p} is not valid`);
+      count += each.sentences.length;
+      for (const { key } of each.sentences) used.add(key);
     }
     // Left over from an earlier preparation with other voices or another version of the text.
-    for (const file of await readdir(join(folder, 'audio'))) {
-      if (!used.has(file.replace(/\.opus$/u, ''))) await rm(join(folder, 'audio', file));
+    if (voiced.length === held.pages) {
+      for (const file of await readdir(join(folder, 'audio'))) {
+        if (!used.has(file.replace(/\.opus$/u, ''))) await rm(join(folder, 'audio', file));
+      }
     }
-
-    let bytes = pdf.length;
+    let bytes = (await stat(join(folder, 'document.pdf'))).size;
     for (const dir of ['audio', 'pages']) {
       for (const file of await readdir(join(folder, dir)))
         bytes += (await stat(join(folder, dir, file))).size;
     }
-    const manifest: Manifest = {
-      version: LIBRARY_VERSION,
-      docId: doc.docId,
-      name: doc.name,
-      pages,
-      sentences,
-      bytes,
-      updated: Date.now(),
-    };
+    const manifest: Manifest = { ...held, sentences: count, bytes, updated: Date.now(), voiced, voices };
     await writeFile(join(folder, 'manifest.json'), JSON.stringify(manifest, null, 2));
   }
 
-  /** The manifest of a whole document, or null: the manifest is written last. */
+  /** The document's manifest, or null when it is not in the library. */
   async manifest(docId: string): Promise<Manifest | null> {
     try {
       const manifest = parseManifest(
@@ -131,7 +159,7 @@ export class PhoneLibrary {
     }
   }
 
-  /** Whether the document is prepared whole. */
+  /** Whether the document is in the library (ADR 11: from the moment it is opened). */
   async isPrepared(docId: string): Promise<boolean> {
     return (await this.manifest(docId)) !== null;
   }

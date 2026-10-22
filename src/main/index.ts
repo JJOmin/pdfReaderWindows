@@ -414,17 +414,25 @@ function registerIpc(): void {
   ipcMain.handle('library:audio', (_event, id: unknown, text: unknown, audio: unknown) =>
     library.addAudio(libraryDoc(id), text, audio),
   );
+  // An opened PDF is in the library at once, without audio, and synced from then on (ADR 11).
+  ipcMain.handle('library:add', async (_event, id: unknown, pages: unknown) => {
+    const doc = libraryDoc(id);
+    const known = await library.isPrepared(doc.docId);
+    const manifest = await library.add(doc, pages);
+    if (!known) {
+      // Marks made before are put where phones read them.
+      const merged = await mirrorNotes(doc, await readNotesFile(doc.path));
+      if (merged) BrowserWindow.getAllWindows()[0]?.webContents.send('notes:changed', merged);
+      changedForStore();
+    }
+    return { voiced: manifest.voiced, voices: manifest.voices };
+  });
   ipcMain.handle(
     'library:page',
-    async (_event, id: unknown, page: unknown, pages: unknown, sentences: unknown) => {
-      const doc = libraryDoc(id);
-      await library.addPage(doc, page, pages, sentences);
-      // The document is whole now: marks made before are put where phones read them.
-      if (page === pages) {
-        const merged = await mirrorNotes(doc, await readNotesFile(doc.path));
-        if (merged) BrowserWindow.getAllWindows()[0]?.webContents.send('notes:changed', merged);
-        changedForStore();
-      }
+    async (_event, id: unknown, page: unknown, pages: unknown, sentences: unknown, voices: unknown) => {
+      await library.addPage(libraryDoc(id), page, pages, sentences, voices);
+      // Each page goes to the phones as soon as it is written.
+      changedForStore();
     },
   );
   ipcMain.handle('sync:status', () => sync.getStatus());

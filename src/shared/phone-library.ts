@@ -8,11 +8,13 @@ import { LANGS, type Lang, type Utterance, type WordTiming } from './types.ts';
  * Hashing is left to the caller, as this file has no Node APIs.
  */
 
-export const LIBRARY_VERSION = 1;
+/** 2 adds the pages that have audio and the voices that made it (ADR 11); 1 is still read. */
+export const LIBRARY_VERSION = 2;
 
 const KEY = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const DEVICE_ID = /^[0-9a-f]{32}$/;
+const VOICES = /^[0-9a-f]{0,64}$/;
 
 /** The page's words in reading order, each NFKC. Hashed, joined by single spaces, into `wordsHash`. */
 export const pageWords = (utterances: readonly Utterance[]): string[] =>
@@ -54,10 +56,27 @@ export interface Manifest {
   /** SHA-256 of the PDF's bytes. */
   docId: string;
   name: string;
+  /** The PDF's pages. */
   pages: number;
+  /** Sentences with audio, on the voiced pages. */
   sentences: number;
   bytes: number;
+  /** Changes with every page added, so that the other devices notice. */
   updated: number;
+  /** The pages that have audio, in order; none for a PDF just opened (ADR 11). */
+  voiced: number[];
+  /** A hash of the voices that made the audio; empty while there is none, or for version 1. */
+  voices: string;
+}
+
+/**
+ * The voiced pages one side has to send or fetch so that `have` matches `want`: those it lacks, or
+ * all of them when its audio was made with other voices.
+ */
+export function pagesToFetch(have: Manifest | null, want: Manifest): number[] {
+  if (!have || have.voices !== want.voices) return [...want.voiced];
+  const held = new Set(have.voiced);
+  return want.voiced.filter((page) => !held.has(page));
 }
 
 /** Where one device stopped reading. Each device writes only its own. */
@@ -123,11 +142,42 @@ export function parsePageIndex(value: unknown): PageIndex | null {
 
 export function parseManifest(value: unknown): Manifest | null {
   const input = record(value);
-  if (!input || input.version !== LIBRARY_VERSION) return null;
+  if (!input || (input.version !== 1 && input.version !== LIBRARY_VERSION)) return null;
   const { docId, pages, sentences, bytes, updated } = input;
   if (typeof docId !== 'string' || !SHA256.test(docId) || !name(input.name, 255)) return null;
   if (!integer(pages, 1) || !integer(sentences, 0) || !integer(bytes, 0) || !finite(updated)) return null;
-  return { version: LIBRARY_VERSION, docId, name: input.name, pages, sentences, bytes, updated };
+  // Version 1 was written only when every page had its audio.
+  if (input.version === 1) {
+    const voiced = Array.from({ length: pages }, (_, i) => i + 1);
+    return {
+      version: LIBRARY_VERSION,
+      docId,
+      name: input.name,
+      pages,
+      sentences,
+      bytes,
+      updated,
+      voiced,
+      voices: '',
+    };
+  }
+  const { voiced, voices } = input;
+  if (typeof voices !== 'string' || !VOICES.test(voices) || !Array.isArray(voiced)) return null;
+  const list = voiced as unknown[];
+  if (!list.every((p) => Number.isInteger(p) && (p as number) >= 1 && (p as number) <= pages)) return null;
+  const sorted = [...new Set(list as number[])].sort((a, b) => a - b);
+  if (sorted.length !== list.length) return null;
+  return {
+    version: LIBRARY_VERSION,
+    docId,
+    name: input.name,
+    pages,
+    sentences,
+    bytes,
+    updated,
+    voiced: sorted,
+    voices,
+  };
 }
 
 /** A sentence the renderer prepared: its text and words, and its audio's length and word timings. */

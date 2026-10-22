@@ -43,8 +43,7 @@ test.beforeAll(async () => {
   pdf = join(dir, 'sample.pdf');
   copyFileSync(fixture, pdf);
   await launch();
-  await page.click('#open-phone');
-  await page.click('#phone-add');
+  // Opening it puts it in the library and renders its audio, without a click (ADR 11).
   await expect(page.locator('#phone-progress')).toContainText('is ready', { timeout: 170_000 });
   await app!.close();
 });

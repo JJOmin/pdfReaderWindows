@@ -5,7 +5,7 @@ import { focusBand, scrollToCentre } from './focus';
 import { paint } from './highlights';
 import { NotesPanel } from './notes-panel';
 import { Pdf } from './pdf';
-import { prepareForPhone } from './phone';
+import { prepareForPhone, voicesKey } from './phone';
 import { Reader } from './reader';
 import { ReadingView } from './reading-view';
 import { Search } from './search';
@@ -300,6 +300,28 @@ async function show(opened: OpenedPdf | null): Promise<void> {
   if (view === reading) void reading.build();
   showPageInfo();
   status('');
+  void addAndPrepare(opened.id);
+}
+
+/**
+ * The opened PDF goes into the phone library at once, without audio, and is synced from then on; its
+ * audio is rendered in the background, page by page, unless the user paused it (ADR 11).
+ */
+async function addAndPrepare(id: number): Promise<void> {
+  try {
+    held = await api.addToLibrary(id, pdf.pageCount);
+  } catch (error) {
+    status(`Not added for the phone: ${error instanceof Error ? error.message : String(error)}`, true);
+    return;
+  }
+  if (id !== documentId) return;
+  void phoneSync.documents();
+  if (audioPaused || voices.length === 0 || held.voiced.length === pdf.pageCount) return showPreparing();
+  if (held.voices !== '' && held.voices !== (await voicesKey(settings, voices))) {
+    // Made with other voices: kept until the user asks for it again (Phone, Prepare audio again).
+    return showPreparing();
+  }
+  void prepare();
 }
 
 /** Offers another device's newer place in this document (ADR 7 section 8). */
@@ -530,7 +552,10 @@ const phoneStatus = (message: string, error = false): void => {
 };
 const showPreparing = (): void => {
   $<HTMLButtonElement>('#phone-add').disabled = preparing !== undefined || pdf.pageCount === 0;
-  $<HTMLButtonElement>('#send-phone').disabled = preparing !== undefined || pdf.pageCount === 0;
+  $<HTMLButtonElement>('#send-phone').disabled = pdf.pageCount === 0;
+  const pause = $<HTMLButtonElement>('#audio-pause');
+  pause.hidden = pdf.pageCount === 0 || (!preparing && !audioPaused);
+  pause.textContent = audioPaused ? 'Resume audio' : 'Pause audio';
   $('#phone-cancel').hidden = preparing === undefined;
   void showSync();
 };
@@ -570,15 +595,21 @@ $('#open-phone').addEventListener('click', () => {
   void showSendTargets();
 });
 $('#phone-cancel').addEventListener('click', () => preparing?.abort());
-/** Prepares the open document for the phone. Resolves to whether it is ready (false when cancelled or failed). */
-function prepare(): Promise<boolean> {
+/** The open document's pages that have audio, and the voices that made it. */
+let held: { voiced: number[]; voices: string } = { voiced: [], voices: '' };
+/** The pause button: rendering runs by default, and stays paused for the session once paused. */
+let audioPaused = false;
+
+/**
+ * Renders the open document's audio in the background, page by page, each page synced as soon as it
+ * is written (ADR 11). `again` starts over with the chosen voices. Resolves to whether it finished.
+ */
+function prepare(again = false): Promise<boolean> {
+  preparing?.abort();
   const job = new AbortController();
   preparing = job;
   showPreparing();
-  // Preparing takes minutes: the window stays usable, and the progress shows at the bottom.
-  $<HTMLDialogElement>('#phone').close();
   const name = $('#title').textContent;
-  phoneStatus(`Phone: preparing ${name}`);
   return prepareForPhone(
     {
       api,
@@ -587,33 +618,44 @@ function prepare(): Promise<boolean> {
       voices,
       pageCount: pdf.pageCount,
       utterances: (page) => pdf.pageUtterances(page),
-      progress: ({ pagesDone, pages, rendered }) =>
-        phoneStatus(
-          `Phone: preparing ${name}, page ${Math.min(pages, pagesDone + 1)} of ${pages}, ${rendered} sentences`,
-        ),
+      fromPage: view.currentPage,
+      held: again ? { voiced: [], voices: '' } : held,
+      progress: ({ pagesDone, pages }) =>
+        phoneStatus(`Audio for the phone: page ${Math.min(pages, pagesDone + 1)} of ${pages}`),
     },
     job.signal,
   )
-    .then(async ({ cancelled, rendered }) => {
-      phoneStatus(cancelled ? 'Phone: cancelled.' : `Phone: ${name} is ready, ${rendered} sentences.`);
-      // A prepared document goes to the store at once, when one is connected.
-      if (!cancelled) {
-        await phoneSync.documents();
-        await phoneSync.run();
+    .then(async ({ cancelled }) => {
+      if (cancelled) {
+        phoneStatus(audioPaused ? 'Audio for the phone: paused.' : 'Audio for the phone: stopped.');
+        return false;
       }
+      phoneStatus(`Audio for the phone: ${name} is ready.`);
+      await phoneSync.documents();
       phoneProgressTimer = setTimeout(() => ($('#phone-progress').hidden = true), PHONE_RESULT_MS);
-      return !cancelled;
+      return true;
     })
     .catch((error: unknown) => {
-      phoneStatus(`Phone: ${error instanceof Error ? error.message : String(error)}`, true);
+      phoneStatus(`Audio for the phone: ${error instanceof Error ? error.message : String(error)}`, true);
       return false;
     })
     .finally(() => {
-      preparing = undefined;
+      if (preparing === job) preparing = undefined;
       showPreparing();
     });
 }
-$('#phone-add').addEventListener('click', () => void prepare());
+$('#audio-pause').addEventListener('click', () => {
+  audioPaused = !audioPaused;
+  if (audioPaused) preparing?.abort();
+  else if (pdf.pageCount > 0) void prepare();
+  showPreparing();
+});
+$('#phone-add').addEventListener('click', () => {
+  // Starts over with the chosen voices, and so also undoes a pause.
+  audioPaused = false;
+  $<HTMLDialogElement>('#phone').close();
+  void prepare(true);
+});
 
 /** "Send to phone" (ADR 10 section 6): prepares the document if it is not yet, then offers it. */
 async function showSendTargets(): Promise<void> {
@@ -631,19 +673,11 @@ async function showSendTargets(): Promise<void> {
 }
 $('#send-phone').addEventListener('click', () => {
   const device = $<HTMLSelectElement>('#send-target').value;
-  void (async () => {
-    try {
-      phoneStatus(`Phone: sent to ${await api.sendToPhone(device)}; it asks there whether to download it.`);
-    } catch {
-      // Not prepared yet: prepare, then send.
-      if (!(await prepare())) return;
-      try {
-        phoneStatus(`Phone: sent to ${await api.sendToPhone(device)}; it asks there whether to download it.`);
-      } catch (error) {
-        phoneStatus(`Phone: ${error instanceof Error ? error.message : String(error)}`, true);
-      }
-    }
-  })();
+  // The document is in the library since it was opened; its audio follows page by page (ADR 11).
+  api.sendToPhone(device).then(
+    (name) => phoneStatus(`Phone: sent to ${name}; it asks there whether to download it.`),
+    (error: unknown) => phoneStatus(`Phone: ${error instanceof Error ? error.message : String(error)}`, true),
+  );
 });
 
 const searchBox = $<HTMLInputElement>('#search');

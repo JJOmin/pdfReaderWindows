@@ -120,7 +120,8 @@ test('a prepared document and phone sync switched on', async () => {
   await page.click('#open-phone');
   await expect(page.locator('#lan-enabled')).not.toBeChecked();
   await expect(page.locator('#lan-on')).toBeHidden();
-  await page.click('#phone-add');
+  await page.keyboard.press('Escape');
+  // Rendered on its own since the document was opened (ADR 11).
   await expect(page.locator('#phone-progress')).toContainText('is ready', { timeout: 170_000 });
   docId = createHash('sha256').update(readFileSync(fixture)).digest('hex');
 
@@ -248,7 +249,10 @@ test('a phone writes its own place and no other device’s', async () => {
   const forged = { ...state, device: other };
   expect((await call('PUT', `/v1/doc/${docId}/state/${other}`, { token, body: forged })).status).toBe(403);
   const states = await call('GET', `/v1/doc/${docId}/state`, { token });
-  expect(JSON.parse(states.body.toString())).toEqual([state]);
+  // Beside this computer's own place, which is in the library since the PDF was opened (ADR 11).
+  const listed = JSON.parse(states.body.toString()) as { device: string }[];
+  expect(listed).toContainEqual(state);
+  expect(listed.map((s) => s.device)).not.toContain(other);
 });
 
 test('a phone’s marks are merged per mark and reach the open document', async () => {

@@ -7,6 +7,7 @@ import {
   PROGRESS_LIMIT,
   rememberProgress,
   resolveVoice,
+  voiceChoice,
 } from '../../src/shared/settings';
 import type { Progress, VoiceOption } from '../../src/shared/types';
 
@@ -65,6 +66,19 @@ describe('focus mode', () => {
     expect(normalizeSettings({ focusMode: true }).focusMode).toBe(true);
     expect(normalizeSettings({ focusMode: 'yes' }).focusMode).toBe(false);
     expect(normalizeSettings({}).focusMode).toBe(false);
+  });
+});
+
+describe('voiceChoice', () => {
+  const settings = normalizeSettings({ voices: { en: { main: { model: 'kokoro', sid: 3 } } } });
+
+  it('is the same for the same voices, and differs when one changes', () => {
+    const available = [voice('kokoro', 3, ['en']), voice('piper-thorsten', 0, ['de'])];
+    expect(voiceChoice(settings, available)).toBe(voiceChoice(settings, [...available]));
+    const other = normalizeSettings({ voices: { en: { main: { model: 'kokoro', sid: 4 } } } });
+    expect(voiceChoice(other, [...available, voice('kokoro', 4, ['en'])])).not.toBe(
+      voiceChoice(settings, available),
+    );
   });
 });
 

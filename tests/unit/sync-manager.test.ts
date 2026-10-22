@@ -65,10 +65,12 @@ beforeEach(async () => {
     join(folder, 'manifest.json'),
     JSON.stringify({
       version: LIBRARY_VERSION,
+      voices: 'ab',
       docId: DOC,
       name: 'secret.pdf',
       pages: 1,
       sentences: 1,
+      voiced: [1],
       bytes: 10,
       updated: 1,
     }),

@@ -859,3 +859,13 @@ details.info > div p {
 #place-offer-text {
   flex: 1;
 }
+
+/* Pauses or resumes the background rendering of the phone's audio (ADR 11). */
+#audio-pause {
+  padding: 0 6px;
+  font-size: inherit;
+}
+
+#audio-pause[hidden] {
+  display: none;
+}

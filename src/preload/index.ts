@@ -17,8 +17,9 @@ const api: Api = {
   synthesize: (request) => ipcRenderer.invoke('tts:synthesize', request),
   prerender: (request) => ipcRenderer.invoke('tts:prerender', request),
   addPhoneAudio: (id, text, audio) => ipcRenderer.invoke('library:audio', id, text, audio),
-  addPhonePage: (id, page, pages, sentences) =>
-    ipcRenderer.invoke('library:page', id, page, pages, sentences),
+  addPhonePage: (id, page, pages, sentences, voices) =>
+    ipcRenderer.invoke('library:page', id, page, pages, sentences, voices),
+  addToLibrary: (id, pages) => ipcRenderer.invoke('library:add', id, pages),
   syncStatus: () => ipcRenderer.invoke('sync:status'),
   syncConnect: (backend, server) => ipcRenderer.invoke('sync:connect', backend, server),
   syncCancel: () => ipcRenderer.invoke('sync:cancel'),

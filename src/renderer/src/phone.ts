@@ -1,7 +1,7 @@
 import { oggOpus, type OpusPacket } from '../../shared/ogg';
 import { libraryTimings, syncText, type PreparedSentence } from '../../shared/phone-library';
 import { prerender, type PrerenderProgress, type PrerenderResult } from '../../shared/prerender';
-import { resolveVoice } from '../../shared/settings';
+import { resolveVoice, voiceChoice } from '../../shared/settings';
 import type { Api, Settings, SynthRequest, Utterance, VoiceOption } from '../../shared/types';
 
 const OPUS_RATE = 48000;
@@ -68,15 +68,32 @@ export interface PrepareHost {
   pageCount: number;
   utterances(page: number): Promise<Utterance[]>;
   progress(state: PrerenderProgress): void;
+  /** Where to start: the page on screen. */
+  fromPage: number;
+  /** The pages that have audio already, and the voices that made it (`addToLibrary`). */
+  held: { voiced: number[]; voices: string };
+}
+
+/** The manifest's `voices`: a hash of the voices that read each language and role (ADR 11). */
+export async function voicesKey(settings: Settings, voices: VoiceOption[]): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(voiceChoice(settings, voices)),
+  );
+  return [...new Uint8Array(digest).slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
- * Prepares the open document for the phone (ADR 7, step S4): every distinct sentence rendered at
- * speed 1.0 with the chosen voices, as Opus, then one index per page. The phone changes the speed
- * itself, so the speed slider plays no part.
+ * Prepares the open document for the phone (ADR 7, step S4; ADR 11): every distinct sentence rendered
+ * at speed 1.0 with the chosen voices, as Opus, and each page's index written as soon as its sentences
+ * are, so that the page is synced at once. Pages that have audio from the same voices are left out, so
+ * a paused or interrupted preparation goes on where it stopped. The phone changes the speed itself,
+ * so the speed slider plays no part.
  */
 export async function prepareForPhone(host: PrepareHost, signal: AbortSignal): Promise<PrerenderResult> {
   const { api, id, settings, voices } = host;
+  const key = await voicesKey(settings, voices);
+  const have = new Set(host.held.voices === key ? host.held.voiced : []);
   /** Each request's sentence text, by request, since `render` is only given the request. */
   const texts = new Map<SynthRequest, string>();
   /** The audio's length and word timings, by sync text: one file per distinct sentence. */
@@ -110,26 +127,27 @@ export async function prepareForPhone(host: PrepareHost, signal: AbortSignal): P
         done.set(text, libraryTimings(audio.timings, audio.samples.length / audio.sampleRate));
       },
       progress: host.progress,
+      skip: (page) => have.has(page),
+      pageDone: async (page) => {
+        const sentences: PreparedSentence[] = [];
+        for (const utterance of await host.utterances(page)) {
+          const audio = done.get(syncText(utterance.text));
+          // A sentence that could not be spoken leaves its page without audio, to be tried again.
+          if (!audio) return;
+          sentences.push({
+            text: utterance.text,
+            lang: utterance.lang,
+            words: utterance.words.map((w) => w.text),
+            ...audio,
+          });
+        }
+        await api.addPhonePage(id, page, host.pageCount, sentences, key);
+      },
     },
-    1,
+    host.fromPage,
     signal,
   );
-  if (result.cancelled) return result;
-  if (result.failed > 0) throw new Error(`${result.failed} sentences could not be spoken`);
-
-  for (let page = 1; page <= host.pageCount; page++) {
-    const sentences: PreparedSentence[] = [];
-    for (const utterance of await host.utterances(page)) {
-      const audio = done.get(syncText(utterance.text));
-      if (!audio) throw new Error(`No voice is chosen for ${utterance.lang} ${utterance.role} text`);
-      sentences.push({
-        text: utterance.text,
-        lang: utterance.lang,
-        words: utterance.words.map((w) => w.text),
-        ...audio,
-      });
-    }
-    await api.addPhonePage(id, page, host.pageCount, sentences);
-  }
+  if (!result.cancelled && result.failed > 0)
+    throw new Error(`${result.failed} sentences could not be spoken`);
   return result;
 }

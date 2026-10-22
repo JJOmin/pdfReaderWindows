@@ -46,6 +46,28 @@ describe('prerender', () => {
     expect(rendered).toEqual(['p3a', 'p4a', 'p1a', 'p2a', 'p2b']);
   });
 
+  it('says when each page is done, right after its sentences (ADR 11)', async () => {
+    const events: string[] = [];
+    const { h } = host([['p1a'], ['p2a', 'p2b']], {
+      render: async ({ text }) => void events.push(text),
+      pageDone: async (page) => void events.push(`page ${page}`),
+    });
+    await prerender(h, 1);
+    expect(events).toEqual(['p1a', 'page 1', 'p2a', 'p2b', 'page 2']);
+  });
+
+  it('leaves out the pages that have audio already, and counts them done', async () => {
+    const done: number[] = [];
+    const { h, rendered, states } = host([['p1a'], ['p2a'], ['p3a']], {
+      skip: (page) => page === 2,
+      pageDone: async (page) => void done.push(page),
+    });
+    await prerender(h, 1);
+    expect(rendered).toEqual(['p1a', 'p3a']);
+    expect(done).toEqual([1, 3]);
+    expect(states.at(-1)?.pagesDone).toBe(3);
+  });
+
   it('renders a repeated sentence once', async () => {
     const { h, rendered } = host([['Figure 1.', 'Text.'], ['Figure 1.']]);
     const result = await prerender(h, 1);

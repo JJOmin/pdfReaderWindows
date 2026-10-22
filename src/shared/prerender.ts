@@ -21,6 +21,10 @@ export interface PrerenderHost<U> {
   request(utterance: U): SynthRequest | undefined;
   render(request: SynthRequest): Promise<void>;
   progress(state: PrerenderProgress): void;
+  /** A page that is left out: its audio is there already (ADR 11). */
+  skip?(page: number): boolean;
+  /** Every sentence of the page is rendered: it can be written, and synced (ADR 11). */
+  pageDone?(page: number): Promise<void>;
 }
 
 /** After this many failures in a row the voice is taken to be down, and the job stops. */
@@ -51,6 +55,10 @@ export async function prerender<U>(
 
   for (const page of order) {
     if (signal?.aborted) return { ...state, cancelled: true };
+    if (host.skip?.(page)) {
+      state.pagesDone += 1;
+      continue;
+    }
     for (const utterance of await host.utterances(page)) {
       if (signal?.aborted) return { ...state, cancelled: true };
       const request = host.request(utterance);
@@ -71,6 +79,7 @@ export async function prerender<U>(
       }
       host.progress({ ...state });
     }
+    await host.pageDone?.(page);
     state.pagesDone += 1;
     host.progress({ ...state });
   }

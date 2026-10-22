@@ -271,7 +271,18 @@ export interface Api {
    */
   addPhoneAudio(id: number, text: string, audio: Uint8Array): Promise<void>;
   /** Writes a page's index once its audio is stored. The last page writes the PDF and the manifest. */
-  addPhonePage(id: number, page: number, pages: number, sentences: PreparedSentence[]): Promise<void>;
+  addPhonePage(
+    id: number,
+    page: number,
+    pages: number,
+    sentences: PreparedSentence[],
+    voices: string,
+  ): Promise<void>;
+  /**
+   * Puts the open PDF in the phone library without audio, if it is not there (ADR 11). Says which
+   * pages have audio already, and made by which voices.
+   */
+  addToLibrary(id: number, pages: number): Promise<{ voiced: number[]; voices: string }>;
   syncStatus(): Promise<SyncStatus>;
   /**
    * Signs in to Nextcloud at the server's address, in the system browser. Resolves when the user

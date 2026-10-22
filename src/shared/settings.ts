@@ -159,3 +159,18 @@ export function rememberProgress(store: ProgressStore, key: string, progress: Pr
   );
   store.documents = Object.fromEntries(Object.entries(store.documents).filter(([key]) => newest.has(key)));
 }
+
+/**
+ * The voices that would read each language and role, as one string: the same string means the same
+ * voices, so a document's audio can be continued page by page; another means it was made with other
+ * voices (ADR 11). The renderer hashes it into the manifest's `voices`.
+ */
+export const voiceChoice = (settings: Settings, available: VoiceOption[]): string =>
+  JSON.stringify(
+    LANGS.flatMap((lang) =>
+      ROLES.map((role) => {
+        const v = resolveVoice(settings, available, lang, role);
+        return v ? `${lang}/${role}=${v.model}#${v.sid}` : `${lang}/${role}=`;
+      }),
+    ),
+  );

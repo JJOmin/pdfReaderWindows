@@ -6,6 +6,7 @@ import {
   pageWords,
   placeOffer,
   parseDeviceState,
+  pagesToFetch,
   parseManifest,
   parsePageIndex,
   parsePreparedPage,
@@ -161,22 +162,33 @@ describe('parsePageIndex', () => {
 
 describe('parseManifest', () => {
   const manifest = (over: Record<string, unknown> = {}) => ({
-    version: 1,
+    version: 2,
     docId: HASH,
     name: 'paper.pdf',
     pages: 7,
     sentences: 355,
     bytes: 1_200_000,
     updated: 1_792_500_000_000,
+    voiced: [3, 1, 2],
+    voices: 'a1b2c3d4e5f60718',
     ...over,
   });
 
-  it('accepts a valid manifest', () => {
-    expect(parseManifest(manifest())).toEqual(manifest());
+  it('accepts a valid manifest, its voiced pages in order', () => {
+    expect(parseManifest(manifest())).toEqual({ ...manifest(), voiced: [1, 2, 3] });
+    // A PDF that has no audio yet.
+    expect(parseManifest(manifest({ voiced: [], voices: '', sentences: 0 }))?.voiced).toEqual([]);
+  });
+
+  it('reads version 1 as every page voiced, by voices unknown', () => {
+    const old: Record<string, unknown> = manifest({ version: 1 });
+    delete old.voiced;
+    delete old.voices;
+    expect(parseManifest(old)).toEqual({ ...manifest(), voiced: [1, 2, 3, 4, 5, 6, 7], voices: '' });
   });
 
   it('rejects other versions and bad fields', () => {
-    expect(parseManifest(manifest({ version: 2 }))).toBeNull();
+    expect(parseManifest(manifest({ version: 3 }))).toBeNull();
     expect(parseManifest(manifest({ docId: 'x' }))).toBeNull();
     expect(parseManifest(manifest({ name: '' }))).toBeNull();
     expect(parseManifest(manifest({ name: 'x'.repeat(256) }))).toBeNull();
@@ -184,6 +196,35 @@ describe('parseManifest', () => {
     expect(parseManifest(manifest({ sentences: 1.5 }))).toBeNull();
     expect(parseManifest(manifest({ bytes: -1 }))).toBeNull();
     expect(parseManifest(manifest({ updated: 'today' }))).toBeNull();
+    expect(parseManifest(manifest({ voiced: [8] }))).toBeNull();
+    expect(parseManifest(manifest({ voiced: [1, 1] }))).toBeNull();
+    expect(parseManifest(manifest({ voiced: 'all' }))).toBeNull();
+    expect(parseManifest(manifest({ voices: 'NOT HEX' }))).toBeNull();
+  });
+});
+
+describe('pagesToFetch', () => {
+  const m = (voiced: number[], voices = 'aa') =>
+    ({
+      version: 2,
+      docId: HASH,
+      name: 'p',
+      pages: 5,
+      sentences: 0,
+      bytes: 0,
+      updated: 1,
+      voiced,
+      voices,
+    }) as const;
+
+  it('is every voiced page when the other side has none, or other voices', () => {
+    expect(pagesToFetch(null, m([1, 2]))).toEqual([1, 2]);
+    expect(pagesToFetch(m([1, 2], 'bb'), m([1, 2]))).toEqual([1, 2]);
+  });
+
+  it('is only the pages the other side lacks when the voices are the same', () => {
+    expect(pagesToFetch(m([1, 2]), m([1, 2, 4]))).toEqual([4]);
+    expect(pagesToFetch(m([1, 2, 4]), m([1, 2, 4]))).toEqual([]);
   });
 });
 

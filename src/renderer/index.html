@@ -158,12 +158,13 @@
       <form method="dialog">
         <h2>Phone sync</h2>
         <p>
-          Syncs the open document with your phone: every sentence is spoken with the chosen voices and stored
-          on this computer, with the PDF. Then it is sent to your Nextcloud and over Wi-Fi.
+          Every PDF you open is synced with your phone at once, and its audio is made in the background, page
+          by page, with the chosen voices; each page goes to the phone as soon as it is done. Prepare audio
+          again starts over, for example after choosing other voices.
         </p>
         <p id="phone-status" role="status"></p>
         <div id="phone-actions">
-          <button type="button" id="phone-add">Sync this document</button>
+          <button type="button" id="phone-add">Prepare audio again</button>
           <button type="button" id="phone-cancel" hidden>Cancel</button>
         </div>
         <div id="send-row" class="sync-row" hidden>
@@ -274,6 +275,7 @@
     <footer id="statusbar">
       <span id="status" role="status"></span>
       <span id="phone-progress" role="status" hidden></span>
+      <button type="button" id="audio-pause" class="link" hidden>Pause audio</button>
     </footer>
     <script type="module" src="./src/main.ts"></script>
   </body>

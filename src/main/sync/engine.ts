@@ -3,7 +3,13 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseNotes } from '../../shared/notes';
 import { mergeNotes } from '../../shared/notes-merge';
-import { parseDeviceState, parseManifest, parsePageIndex, type Manifest } from '../../shared/phone-library';
+import {
+  pagesToFetch,
+  parseDeviceState,
+  parseManifest,
+  parsePageIndex,
+  type Manifest,
+} from '../../shared/phone-library';
 import {
   changedParts,
   packAudio,
@@ -84,12 +90,13 @@ async function fetchSealed(store: SyncStore, key: Uint8Array, path: string): Pro
 }
 
 /**
- * Puts one finished document in the store: the PDF, then every page's index and packed audio, and
- * the manifest last, so a manifest in the store means the document is whole.
- * Returns false when the store already holds this very preparation.
+ * Puts a document in the store: the PDF, the pages that have audio and the store lacks, each with its
+ * index and packed audio, and the manifest last, so that a manifest in the store names only what is
+ * there (ADR 11: pages are sent as they are rendered). Returns false when the store already holds this
+ * very version.
  */
-// shortcut: an upload that stops halfway starts again from the PDF. Upgrade when documents are
-// large enough that this is seen, by listing what is there and sending only the rest.
+// shortcut: an upload that stops halfway sends its pages again. Upgrade when documents are large
+// enough that this is seen, by listing what is there and sending only the rest.
 async function uploadDocument(
   store: SyncStore,
   key: Uint8Array,
@@ -101,13 +108,17 @@ async function uploadDocument(
   const { docId } = manifest;
 
   const there = await fetchSealed(store, key, remotePath.manifest(docId));
-  if (there) {
-    const remote = parseManifest(JSON.parse(new TextDecoder().decode(there)));
-    if (remote?.updated === manifest.updated) return false;
+  let remote: Manifest | null;
+  try {
+    remote = there && parseManifest(JSON.parse(new TextDecoder().decode(there)));
+  } catch {
+    remote = null;
   }
+  if (remote?.updated === manifest.updated) return false;
 
-  await put(remotePath.pdf(docId), await readFile(join(folder, 'document.pdf')));
-  for (let page = 1; page <= manifest.pages; page++) {
+  // Its id is its hash: a PDF in the store is this PDF.
+  if (!remote) await put(remotePath.pdf(docId), await readFile(join(folder, 'document.pdf')));
+  for (const page of pagesToFetch(remote, manifest)) {
     const file = await readFile(join(folder, 'pages', `${page}.json`));
     const index = parsePageIndex(JSON.parse(file.toString('utf8')));
     if (!index) throw new Error(`The index of page ${page} is not valid`);

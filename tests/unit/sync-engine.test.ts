@@ -116,10 +116,12 @@ async function makeDocument(updated: number): Promise<string> {
     join(folder, 'manifest.json'),
     JSON.stringify({
       version: LIBRARY_VERSION,
+      voices: 'ab',
       docId: DOC,
       name: 'paper.pdf',
       pages: 2,
       sentences: 3,
+      voiced: [1, 2],
       bytes: 100,
       updated,
     }),
@@ -236,6 +238,46 @@ describe('syncLibrary', () => {
     await rm(join(folder, 'pages', '2.json'));
     await expect(syncLibrary(store, key, root, DESKTOP)).rejects.toThrow();
     expect(store.files.has(remotePath.manifest(DOC))).toBe(false);
+  });
+});
+
+describe('audio page by page (ADR 11)', () => {
+  const manifestOf = (voiced: number[], updated: number): string =>
+    JSON.stringify({
+      version: LIBRARY_VERSION,
+      voices: voiced.length > 0 ? 'ab' : '',
+      docId: DOC,
+      name: 'paper.pdf',
+      pages: 2,
+      sentences: 0,
+      bytes: 100,
+      updated,
+      voiced,
+    });
+
+  it('sends a PDF that has no audio yet: the PDF and the manifest', async () => {
+    const folder = await makeDocument(1);
+    await writeFile(join(folder, 'manifest.json'), manifestOf([], 1));
+    await syncLibrary(store, key, root, DESKTOP);
+    expect(store.puts).toEqual([remotePath.pdf(DOC), remotePath.manifest(DOC), remotePath.journal(DESKTOP)]);
+  });
+
+  it('sends a page as it is added, and only that page', async () => {
+    const memo = newMemo();
+    const folder = await makeDocument(1);
+    await writeFile(join(folder, 'manifest.json'), manifestOf([1], 1));
+    await syncLibrary(store, key, root, DESKTOP, { memo });
+    expect(store.puts).toContain(remotePath.page(DOC, 1));
+    expect(store.puts).not.toContain(remotePath.page(DOC, 2));
+    store.forget();
+    await writeFile(join(folder, 'manifest.json'), manifestOf([1, 2], 2));
+    await syncLibrary(store, key, root, DESKTOP, { memo });
+    expect(store.puts).toEqual([
+      remotePath.pack(DOC, 2),
+      remotePath.page(DOC, 2),
+      remotePath.manifest(DOC),
+      remotePath.journal(DESKTOP),
+    ]);
   });
 });
 

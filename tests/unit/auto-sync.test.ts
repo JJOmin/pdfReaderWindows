@@ -36,17 +36,21 @@ describe('AutoSync', () => {
     expect(runs).toHaveLength(3);
   });
 
-  it('sends 10 seconds after the last change, and a new change moves that back', async () => {
+  it('sends at most 10 seconds after the first change not yet sent, however many follow (ADR 11)', async () => {
     auto.start();
     await sec(0);
     runs.length = 0;
     auto.changed('content');
     await sec(6);
+    // A page rendered every few seconds must not put the upload off to the last one.
     auto.changed('content');
-    await sec(9);
+    await sec(3);
     expect(runs).toHaveLength(0);
     await sec(1);
     expect(runs).toHaveLength(1);
+    auto.changed('content');
+    await sec(10);
+    expect(runs).toHaveLength(2);
   });
 
   it('lets a place be sent at most once a minute', async () => {

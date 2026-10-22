@@ -1,6 +1,7 @@
 /**
- * When the desktop syncs with the store on its own (ADR 10 section 3): at once on start, 10 seconds
- * after the last change, every 2 minutes for the other devices' changes, and before the app quits.
+ * When the desktop syncs with the store on its own (ADR 10 section 3): at once on start, at most 10
+ * seconds after the first change not yet sent (ADR 11: pages rendered one after another must not put
+ * it off), every 2 minutes for the other devices' changes, and before the app quits.
  * A place in a document counts too, but at most once a minute. The clock and the timers are the
  * platform's, so a test can advance them.
  */
@@ -23,6 +24,8 @@ export class AutoSync {
   /** A change came while a sync was running, so that one cannot have carried it. */
   private again = false;
   private lastRun = 0;
+  /** When the pending timer fires. */
+  private due = 0;
 
   constructor(private readonly options: AutoSyncOptions) {}
 
@@ -55,12 +58,12 @@ export class AutoSync {
   changed(kind: 'content' | 'place'): void {
     if (!this.started || !this.enabled) return;
     const now = this.options.now();
-    if (kind === 'content') {
-      clearTimeout(this.timer);
-      this.schedule(CHANGE_DELAY_MS);
-    } else if (this.timer === undefined) {
-      this.schedule(Math.max(CHANGE_DELAY_MS, this.lastRun + PLACE_EVERY_MS - now));
-    }
+    const delay =
+      kind === 'content' ? CHANGE_DELAY_MS : Math.max(CHANGE_DELAY_MS, this.lastRun + PLACE_EVERY_MS - now);
+    // A sync that is due sooner already carries this change too.
+    if (this.timer !== undefined && this.due <= now + delay) return;
+    clearTimeout(this.timer);
+    this.schedule(delay);
   }
 
   /** Sends what waits, for the moment the app quits. Resolves to whether there was anything. */
@@ -79,6 +82,7 @@ export class AutoSync {
   }
 
   private schedule(delay: number): void {
+    this.due = this.options.now() + delay;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.sync();
