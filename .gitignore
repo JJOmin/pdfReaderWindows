@@ -4,6 +4,8 @@ dist/
 models/
 src/renderer/public/pdfjs/
 tests/fixtures/*.pdf
+# Committed: the phone's tests and golden files need these exact bytes, and a Mac draws it differently.
+!tests/fixtures/sample.pdf
 tests/fixtures/*.notes.*
 test-results/
 playwright-report/

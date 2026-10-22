@@ -90,7 +90,13 @@ test.beforeAll(async () => {
   };
   // Set by VS Code's extension host; it would make Electron start as plain Node.
   delete env.ELECTRON_RUN_AS_NODE;
-  app = await electron.launch({ args: ['.', pdfPath, '--mute-audio'], env: env as Record<string, string> });
+  // One pixel per point, as on the PC. On a Retina Mac at 200 % zoom PDF.js caps the page canvas by
+  // the screen's area and draws the visible part on a second canvas, so the ink measured below
+  // would come from a canvas at less than half resolution.
+  app = await electron.launch({
+    args: ['.', pdfPath, '--mute-audio', '--force-device-scale-factor=1'],
+    env: env as Record<string, string>,
+  });
   page = await app.firstWindow();
   page.on('pageerror', (error) => pageErrors.push(error.stack ?? error.message));
 });
@@ -197,13 +203,25 @@ test('keeps every word highlight on its letters, at two zoom levels', async () =
     return { words: words.length, worst: Math.max(...words.map((w) => w.worst)), pixelsPerPoint };
   };
   const first = await check();
+  const report = `alignment: ${first.words} words, worst ${first.worst.toFixed(3)} em at ${first.pixelsPerPoint.toFixed(2)} px/pt`;
+  // PDF.js caps a page canvas at three times the screen's area (its capCanvasAreaFactor) and then
+  // draws only the visible part sharp, so the ink of a whole page cannot be measured. Double the
+  // zoom fits a 1920 x 1080 screen, not a 1440 x 900 MacBook Air.
+  const fits = await page.evaluate((scale) => {
+    const box = document.querySelector('.page')!.getBoundingClientRect();
+    const pixels = box.width * box.height * (scale * devicePixelRatio) ** 2;
+    return pixels <= screen.availWidth * screen.availHeight * devicePixelRatio ** 2 * 3;
+  }, 1.1 ** 7);
+  if (!fits) {
+    console.log(`${report}; double the zoom not measured, the screen is too small`);
+    return;
+  }
   // Seven steps of 10 % are close to double.
   for (let i = 0; i < 7; i++) await page.click('#zoom-in');
   const second = await check();
   expect(second.pixelsPerPoint / first.pixelsPerPoint).toBeGreaterThan(1.9);
   console.log(
-    `alignment: ${first.words} words, worst ${first.worst.toFixed(3)} em at ${first.pixelsPerPoint.toFixed(2)} px/pt; ` +
-      `${second.words} words, worst ${second.worst.toFixed(3)} em at ${second.pixelsPerPoint.toFixed(2)} px/pt`,
+    `${report}; ${second.words} words, worst ${second.worst.toFixed(3)} em at ${second.pixelsPerPoint.toFixed(2)} px/pt`,
   );
   for (let i = 0; i < 7; i++) await page.click('#zoom-out');
 });
@@ -355,8 +373,11 @@ test('saves marks where the PDF itself draws the word', async () => {
   // A word near the end of a justified line is where a layer that stretches the line evenly is
   // furthest off, so mark one and save a second copy.
   await page.evaluate(() => document.querySelector('#scroller')!.scrollTo(0, 0));
-  await select('.textLayer', 'vollständig');
-  await page.click('#selection-menu [data-kind="highlight"]');
+  // The scroll event can arrive after the selection and hide its menu, so select until it stays.
+  await expect(async () => {
+    await select('.textLayer', 'vollständig');
+    await page.click('#selection-menu [data-kind="highlight"]', { timeout: 1500 });
+  }).toPass({ timeout: 20_000 });
   await page.click('#selection-menu [data-color="yellow"]');
   const secondPath = join(pdfPath, '..', 'sample.words.pdf');
   await app.evaluate(({ dialog }, filePath) => {
@@ -726,6 +747,9 @@ test('focus mode keeps the spoken sentence in the middle of the view, in both vi
   await page.click('#toggle-reading');
   await expect(page.locator('#viewer-container')).toBeVisible();
   await page.fill('#search', '');
+  // Smaller pages put the sentence well above the middle on any screen. A Mac's window is
+  // shorter, because macOS keeps it inside a 900 px screen.
+  for (let i = 0; i < 3; i++) await page.click('#zoom-out');
   await readFrom('Die linke Spalte');
   const first = await nextSentence(null);
   const topBefore = await scrollTop();
@@ -753,6 +777,7 @@ test('focus mode keeps the spoken sentence in the middle of the view, in both vi
     await expectCentred('spoken-sentence');
   }
   await page.click('#stop');
+  for (let i = 0; i < 3; i++) await page.click('#zoom-in');
 
   // The same in the reading view.
   await page.click('#toggle-reading');

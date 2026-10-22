@@ -9,15 +9,15 @@ How we work is in [docs/WORKFLOW.md](docs/WORKFLOW.md). What is built and what i
 
 ## Commands
 
-| Command                        | Use                                                              |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `npm run check`                | Type check, lint, format check, unit tests. Run before "done".   |
-| `npm run test:e2e`             | Builds and drives the real app. Run after UI or speech changes.  |
-| `npm run dump -- file.pdf [n]` | Prints what the reader would speak. The tool for text detection. |
-| `npm run dev`                  | Starts the app with hot reload.                                  |
-| `npm run models`               | Downloads the recommended speech models into `models/`.          |
-| `npm run gpu-voice`            | Sets up the optional XTTS-v2 GPU voice (Python env, 7 GB).       |
-| `npm run fixtures`             | Regenerates `tests/fixtures/sample.pdf`.                         |
+| Command                        | Use                                                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run check`                | Type check, lint, format check, unit tests. Run before "done".                                                                                                      |
+| `npm run test:e2e`             | Builds and drives the real app. Run after UI or speech changes.                                                                                                     |
+| `npm run dump -- file.pdf [n]` | Prints what the reader would speak. The tool for text detection.                                                                                                    |
+| `npm run dev`                  | Starts the app with hot reload.                                                                                                                                     |
+| `npm run models`               | Downloads the recommended speech models into `models/`.                                                                                                             |
+| `npm run gpu-voice`            | Sets up the optional XTTS-v2 GPU voice (Python env, 7 GB).                                                                                                          |
+| `npm run fixtures`             | Regenerates `tests/fixtures/sample.pdf`. The committed copy was made on Windows; a Mac breaks its lines differently, and the phone's golden files need these bytes. |
 
 Inside VS Code's Claude extension `ELECTRON_RUN_AS_NODE=1` is set, which makes Electron start as
 plain Node. Prefix anything that launches Electron: `env -u ELECTRON_RUN_AS_NODE npm run dev`.

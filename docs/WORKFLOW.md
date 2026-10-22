@@ -90,6 +90,21 @@ codebases. If it gets in the way here, `graphify uninstall` removes it.
 Restart VS Code once: the hooks need `graphify` on the PATH, and programs started before Python
 3.12 was installed do not see it yet.
 
+## Setting up a Mac
+
+The app runs on Apple Silicon Macs too (ADR 9). On a fresh Mac:
+
+1. `brew install node`. The app needs Node 22.13 or newer.
+2. `npm ci`. npm 11 and newer skip packages' install scripts unless they are approved, and so
+   Electron's binary is not downloaded during the install. It downloads itself on the first
+   start, or at once with `node node_modules/electron/install.js`. esbuild works without its
+   script.
+3. `npm run models` fetches the recommended speech models into `models/`. They are not in git.
+4. `npm run check` must pass.
+
+The GPU voice (`npm run gpu-voice`) is Windows-only: it needs an NVIDIA GPU. The Flutter app's
+own setup on the Mac is in its `CLAUDE.md`.
+
 ## What is not installed and why
 
 **OmniRoute** is not a skill. It is a local gateway that sends Claude Code's requests to other
