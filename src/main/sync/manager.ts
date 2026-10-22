@@ -14,13 +14,6 @@ import {
   type SyncStore,
 } from '../../shared/sync-store';
 import type { SyncReport, SyncStatus } from '../../shared/types';
-import {
-  DROPBOX_APP_KEY,
-  DROPBOX_REDIRECT_PORT,
-  DropboxStore,
-  dropboxAuthorize,
-  type DropboxHosts,
-} from './dropbox';
 import { syncLibrary } from './engine';
 import { WebDavStore, nextcloudDavBase, nextcloudLogin } from './webdav';
 
@@ -35,9 +28,6 @@ export interface SyncOptions {
   openUrl(url: string): void;
   /** A document's notes changed here because of a sync: one that is open should show them. */
   onNotesChanged?(docId: string): void;
-  dropboxKey?: string;
-  dropboxHosts?: DropboxHosts;
-  dropboxPort?: number;
 }
 
 /**
@@ -49,10 +39,6 @@ export class SyncManager {
   private running = false;
 
   constructor(private readonly options: SyncOptions) {}
-
-  private get dropboxKey(): string {
-    return this.options.dropboxKey ?? DROPBOX_APP_KEY;
-  }
 
   private async load(): Promise<{ config: SyncConfig; secrets: SyncSecrets }> {
     let file: unknown = null;
@@ -78,7 +64,7 @@ export class SyncManager {
 
   private status(config: SyncConfig): SyncStatus {
     const account = config.backend === 'nextcloud' ? `${config.user} at ${new URL(config.server).host}` : '';
-    return { backend: config.backend, account, dropboxAvailable: this.dropboxKey !== '' };
+    return { backend: config.backend, account };
   }
 
   private device: Promise<string> | undefined;
@@ -103,35 +89,17 @@ export class SyncManager {
   }
 
   async connect(backend: unknown, server: unknown): Promise<SyncStatus> {
-    if (backend !== 'nextcloud' && backend !== 'dropbox') throw new Error('Unknown sync service');
+    if (backend !== 'nextcloud') throw new Error('Unknown sync service');
     this.signingIn?.abort();
     const attempt = (this.signingIn = new AbortController());
     try {
       const { config, secrets } = await this.load();
       secrets.key ??= formatSyncKey(newSyncKey());
-      if (backend === 'nextcloud') {
-        const url = typeof server === 'string' ? parseServerUrl(server) : null;
-        if (!url)
-          throw new Error('Enter the address of your Nextcloud, for example https://cloud.example.com');
-        const login = await nextcloudLogin(url, this.options.openUrl, attempt.signal);
-        Object.assign(config, {
-          backend,
-          server: url.href.replace(/\/$/u, ''),
-          user: login.user,
-        });
-        secrets.password = login.password;
-        delete secrets.refresh;
-      } else {
-        secrets.refresh = await dropboxAuthorize(
-          this.dropboxKey,
-          this.options.openUrl,
-          attempt.signal,
-          this.options.dropboxHosts,
-          this.options.dropboxPort ?? DROPBOX_REDIRECT_PORT,
-        );
-        Object.assign(config, { backend, server: '', user: '' });
-        delete secrets.password;
-      }
+      const url = typeof server === 'string' ? parseServerUrl(server) : null;
+      if (!url) throw new Error('Enter the address of your Nextcloud, for example https://cloud.example.com');
+      const login = await nextcloudLogin(url, this.options.openUrl, attempt.signal);
+      Object.assign(config, { backend, server: url.href.replace(/\/$/u, ''), user: login.user });
+      secrets.password = login.password;
       await this.save(config, secrets);
       return this.status(config);
     } finally {
@@ -172,9 +140,6 @@ export class SyncManager {
   private store(config: SyncConfig, secrets: SyncSecrets): SyncStore {
     if (config.backend === 'nextcloud' && secrets.password) {
       return new WebDavStore(nextcloudDavBase(config.server, config.user), config.user, secrets.password);
-    }
-    if (config.backend === 'dropbox' && secrets.refresh) {
-      return new DropboxStore(this.dropboxKey, secrets.refresh, this.options.dropboxHosts);
     }
     throw new Error('Sign in to a sync service first');
   }

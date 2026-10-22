@@ -7,6 +7,10 @@ Status: **Accepted** by the owner on 2026-10-21 for Nextcloud and Dropbox. The d
 reading side of everything below. Nothing here replaces ADR 7; it adds a second way to the same
 library.
 
+**Dropbox removed 2026-10-22 (ADR 10 section 1).** The owner uses Nextcloud only and has no Dropbox
+app key. Everything below about Dropbox describes the code as it was before the commit "S10: remove
+Dropbox"; `git show` on that commit's parent brings it back. The store interface stays.
+
 ## Context
 
 ADR 7 syncs only while the phone and the desktop are on the same network. The owner wants it to work

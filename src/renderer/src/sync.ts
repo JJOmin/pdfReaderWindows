@@ -3,7 +3,7 @@ import type { Api, SyncReport, SyncStatus } from '../../shared/types';
 const $ = <T extends HTMLElement>(selector: string): T => document.querySelector<T>(selector)!;
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-const NAMES = { none: '', nextcloud: 'Nextcloud', dropbox: 'Dropbox' } as const;
+const NAMES = { none: '', nextcloud: 'Nextcloud' } as const;
 
 const describe = ({ documents, uploaded, unreadable }: SyncReport): string => {
   const sent = uploaded > 0 ? `${uploaded} of ${documents} documents sent` : 'everything was already there';
@@ -17,7 +17,7 @@ const describe = ({ documents, uploaded, unreadable }: SyncReport): string => {
 export function setUpSync(api: Api, report: (text: string, error?: boolean) => void) {
   let waiting = false;
   let syncing = false;
-  let status: SyncStatus = { backend: 'none', account: '', dropboxAvailable: false };
+  let status: SyncStatus = { backend: 'none', account: '' };
 
   const account = (text: string, error = false): void => {
     $('#sync-account').textContent = text;
@@ -29,10 +29,6 @@ export function setUpSync(api: Api, report: (text: string, error?: boolean) => v
     $('#sync-connect').hidden = connected;
     $('#sync-connected').hidden = !connected;
     $<HTMLButtonElement>('#sync-nextcloud').disabled = waiting;
-    $<HTMLButtonElement>('#sync-dropbox').disabled = waiting || !status.dropboxAvailable;
-    $<HTMLButtonElement>('#sync-dropbox').title = status.dropboxAvailable
-      ? ''
-      : 'This build has no Dropbox app key';
     $('#sync-cancel').hidden = !waiting;
     $<HTMLButtonElement>('#sync-now').disabled = syncing;
     if (waiting) account('Waiting for you to approve in the browser…');
@@ -42,7 +38,7 @@ export function setUpSync(api: Api, report: (text: string, error?: boolean) => v
     } else account('Not signed in.');
   }
 
-  async function sign(backend: 'nextcloud' | 'dropbox'): Promise<void> {
+  async function sign(backend: 'nextcloud'): Promise<void> {
     waiting = true;
     show();
     try {
@@ -78,7 +74,6 @@ export function setUpSync(api: Api, report: (text: string, error?: boolean) => v
   }
 
   $('#sync-nextcloud').addEventListener('click', () => void sign('nextcloud'));
-  $('#sync-dropbox').addEventListener('click', () => void sign('dropbox'));
   $('#sync-cancel').addEventListener('click', () => void api.syncCancel());
   $('#sync-now').addEventListener('click', () => void run());
   $('#sync-disconnect').addEventListener('click', () => {

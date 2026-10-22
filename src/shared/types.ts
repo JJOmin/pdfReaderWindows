@@ -190,10 +190,8 @@ export interface OpenedPdf {
 /** Where the phone library is kept in sync (ADR 8). */
 export interface SyncStatus {
   backend: Backend;
-  /** Who is signed in: `user at server` for Nextcloud, empty for Dropbox and when nothing is connected. */
+  /** Who is signed in: `user at server`, empty when nothing is connected. */
   account: string;
-  /** False when this build has no Dropbox app key. */
-  dropboxAvailable: boolean;
 }
 
 export interface SyncReport {
@@ -254,10 +252,10 @@ export interface Api {
   addPhonePage(id: number, page: number, pages: number, sentences: PreparedSentence[]): Promise<void>;
   syncStatus(): Promise<SyncStatus>;
   /**
-   * Signs in to Nextcloud (with the server's address) or Dropbox in the system browser. Resolves
-   * when the user has approved, and rejects when they cancel or it times out.
+   * Signs in to Nextcloud at the server's address, in the system browser. Resolves when the user
+   * has approved, and rejects when they cancel or it times out.
    */
-  syncConnect(backend: 'nextcloud' | 'dropbox', server?: string): Promise<SyncStatus>;
+  syncConnect(backend: 'nextcloud', server: string): Promise<SyncStatus>;
   /** Stops a sign-in that is waiting for the browser. */
   syncCancel(): Promise<void>;
   /** Forgets the sign-in. The files in the store stay where they are. */

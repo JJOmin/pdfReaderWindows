@@ -162,15 +162,19 @@ describe('sync config', () => {
 
   it('keeps what is valid and drops what is not', () => {
     const config = parseSyncConfig(
-      { deviceId: 'a'.repeat(32), backend: 'dropbox', server: 5, user: 'alice', secrets: 'xyz' },
+      { deviceId: 'a'.repeat(32), backend: 'nextcloud', server: 5, user: 'alice', secrets: 'xyz' },
       id,
     );
     expect(config).toEqual({
       deviceId: 'a'.repeat(32),
-      backend: 'dropbox',
+      backend: 'nextcloud',
       server: '',
       user: 'alice',
       secrets: 'xyz',
+    });
+    // Dropbox was removed (ADR 10): a file written while it was chosen reads as signed out.
+    expect(parseSyncConfig({ deviceId: 'a'.repeat(32), backend: 'dropbox' }, id)).toMatchObject({
+      backend: 'none',
     });
     expect(parseSyncConfig({ backend: 'onedrive', deviceId: 'short' }, id)).toMatchObject({
       backend: 'none',
@@ -179,10 +183,7 @@ describe('sync config', () => {
   });
 
   it('reads only the secrets it knows', () => {
-    expect(parseSyncSecrets({ key: 'k', password: 3, refresh: 'r', other: 'x' })).toEqual({
-      key: 'k',
-      refresh: 'r',
-    });
+    expect(parseSyncSecrets({ key: 'k', password: 3, refresh: 'r', other: 'x' })).toEqual({ key: 'k' });
     expect(parseSyncSecrets('nope')).toEqual({});
   });
 });

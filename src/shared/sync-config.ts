@@ -1,4 +1,5 @@
-export const BACKENDS = ['none', 'nextcloud', 'dropbox'] as const;
+// Dropbox was removed for now (ADR 10); a file that still names it reads as signed out.
+export const BACKENDS = ['none', 'nextcloud'] as const;
 export type Backend = (typeof BACKENDS)[number];
 
 /** What `sync.json` holds in the clear. Everything secret is in `secrets`, encrypted by the system. */
@@ -18,8 +19,6 @@ export interface SyncSecrets {
   key?: string;
   /** A Nextcloud app password. */
   password?: string;
-  /** A Dropbox refresh token. */
-  refresh?: string;
 }
 
 const DEVICE_ID = /^[0-9a-f]{32}$/;
@@ -44,7 +43,7 @@ export function parseSyncConfig(value: unknown, newDeviceId: () => string): Sync
 export function parseSyncSecrets(value: unknown): SyncSecrets {
   const input = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
   const secrets: SyncSecrets = {};
-  for (const field of ['key', 'password', 'refresh'] as const) {
+  for (const field of ['key', 'password'] as const) {
     const entry = text(input[field], 4096);
     if (entry) secrets[field] = entry;
   }

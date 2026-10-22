@@ -115,8 +115,8 @@ test('the sync section starts signed out and checks what is typed', async () => 
   await page.click('#open-phone');
   await expect(page.locator('#sync-account')).toHaveText('Not signed in.');
   await expect(page.locator('#sync-connected')).toBeHidden();
-  // This build has no Dropbox app key unless PDFREADER_DROPBOX_KEY is set.
-  await expect(page.locator('#sync-dropbox')).toBeDisabled();
+  // Dropbox was removed for now (ADR 10).
+  await expect(page.locator('#sync-dropbox')).toHaveCount(0);
 
   await page.fill('#sync-server', 'http://cloud.example.com');
   await page.click('#sync-nextcloud');

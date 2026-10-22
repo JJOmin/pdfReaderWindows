@@ -34,7 +34,7 @@ The e2e tests already strip it.
     and the pre-render job, `requests.ts` checking a speech request from the renderer.
 - `src/main/` Electron main process: file access, settings, `tts.ts`, which runs the speech
   models through `sherpa-onnx-node`, and `annotate.ts`, which writes marks into a PDF copy.
-  `sync/` sends the phone library to Nextcloud or Dropbox (ADR 8): `webdav.ts`, `dropbox.ts`,
+  `sync/` sends the phone library to Nextcloud (ADR 8; Dropbox removed for now, ADR 10): `webdav.ts`,
   `engine.ts`, `manager.ts`; `shared/sync-store.ts` has the store interface, packs and encryption.
   `xtts.ts` drives the GPU voice: a Python helper (`helper/xtts_helper.py`, JSON lines over
   stdin and stdout) that renders sentences into a cache folder. ADR 5 has the reasons.
@@ -62,7 +62,7 @@ second coordinate system, and do not add a feature to one view only.
   `Api`, and the main process validates everything it receives.
 - No internet at runtime: no cloud voices, no external models or LLMs, no downloads. Speech is
   made on the user's own machine. The only network uses are phone sync: on the local network
-  (ADR 7) with phones the user paired, and through the user's own Nextcloud or Dropbox (ADR 8)
+  (ADR 7) with phones the user paired, and through the user's own Nextcloud (ADR 8)
   after they signed in, as encrypted files. Only the main process talks to the network.
 - Comments explain why, not what. A known limit is marked `// shortcut: <limit>, <when to upgrade>`.
 - Do not claim something works without running it. For speech and highlighting that means e2e.

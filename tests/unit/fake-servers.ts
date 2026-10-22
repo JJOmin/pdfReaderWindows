@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-/** Small in-memory stand-ins for the two services, enough to run the real adapters against. */
+/** A small in-memory stand-in for Nextcloud, enough to run the real adapter against. */
 
 async function body(request: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -127,115 +126,6 @@ export async function fakeNextcloud(options: FakeNextcloudOptions = {}): Promise
     folders,
     approve: () => void (approved = true),
     opened: [],
-    close: () => new Promise((resolve) => (server.closeAllConnections(), server.close(() => resolve()))),
-  };
-}
-
-export interface FakeDropbox {
-  hosts: { api: string; content: string; www: string };
-  files: Map<string, Buffer>;
-  /** How many calls were refused with 429 so far, and how many are still to be. */
-  throttle: { remaining: number; refused: number };
-  /** Makes every token issued so far invalid, as an expiry would. */
-  expireTokens(): void;
-  tokensIssued: number;
-  /** What the browser does at the authorize address: approves, and returns where Dropbox sends the user. */
-  approve(authorizeUrl: string): string;
-  close(): Promise<void>;
-}
-
-export async function fakeDropbox(): Promise<FakeDropbox> {
-  const files = new Map<string, Buffer>();
-  const codes = new Map<string, { challenge: string; redirect: string }>();
-  let valid = new Set<string>();
-  const state = { tokensIssued: 0, throttle: { remaining: 0, refused: 0 } };
-  const json = (res: ServerResponse, status: number, value: unknown): void => {
-    res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
-  };
-  const server = await listen(async (req, res) => {
-    const path = new URL(req.url ?? '/', 'http://x').pathname;
-    const raw = await body(req);
-    if (path === '/oauth2/token') {
-      const form = new URLSearchParams(raw.toString());
-      if (form.get('grant_type') === 'authorization_code') {
-        const granted = codes.get(form.get('code') ?? '');
-        const challenge = createHash('sha256')
-          .update(form.get('code_verifier') ?? '')
-          .digest('base64url');
-        if (!granted || granted.challenge !== challenge || granted.redirect !== form.get('redirect_uri')) {
-          return json(res, 400, { error: 'invalid_grant' });
-        }
-      } else if (form.get('refresh_token') !== 'refresh-1') {
-        return json(res, 400, { error: 'invalid_grant' });
-      }
-      const access = `access-${++state.tokensIssued}`;
-      valid.add(access);
-      return json(res, 200, { access_token: access, expires_in: 14400, refresh_token: 'refresh-1' });
-    }
-    if (!valid.has((req.headers.authorization ?? '').replace('Bearer ', ''))) {
-      return json(res, 401, { error_summary: 'expired_access_token/' });
-    }
-    if (state.throttle.remaining > 0) {
-      state.throttle.remaining--;
-      state.throttle.refused++;
-      return void res.writeHead(429, { 'Retry-After': '0' }).end('too_many_requests');
-    }
-    const arg = JSON.parse((req.headers['dropbox-api-arg'] as string | undefined) ?? 'null') as {
-      path: string;
-    } | null;
-    if (path === '/2/files/upload') {
-      files.set(arg!.path, raw);
-      return json(res, 200, { name: arg!.path });
-    }
-    if (path === '/2/files/download') {
-      const file = files.get(arg!.path);
-      if (!file) return json(res, 409, { error_summary: 'path/not_found/..' });
-      return void res.writeHead(200).end(file);
-    }
-    if (path === '/2/files/list_folder' || path === '/2/files/list_folder/continue') {
-      const request = JSON.parse(raw.toString()) as { path?: string; cursor?: string };
-      // Two entries a page, so the continuation is exercised.
-      const dir = request.cursor ? request.cursor.split('|')[0]! : (request.path ?? '');
-      const from = request.cursor ? Number(request.cursor.split('|')[1]) : 0;
-      const names = new Map<string, { folder: boolean; size: number }>();
-      for (const [file, bytes] of files) {
-        if (!file.startsWith(`${dir}/`)) continue;
-        const rest = file.slice(dir.length + 1);
-        const [first, ...more] = rest.split('/');
-        names.set(first!, more.length ? { folder: true, size: 0 } : { folder: false, size: bytes.length });
-      }
-      if (names.size === 0 && dir !== '') return json(res, 409, { error_summary: 'path/not_found/' });
-      const all = [...names];
-      const slice = all.slice(from, from + 2);
-      return json(res, 200, {
-        entries: slice.map(([name, e]) => ({ '.tag': e.folder ? 'folder' : 'file', name, size: e.size })),
-        cursor: `${dir}|${from + 2}`,
-        has_more: from + 2 < all.length,
-      });
-    }
-    res.writeHead(404).end();
-  });
-  const host = origin(server);
-  return {
-    hosts: { api: host, content: host, www: host },
-    files,
-    throttle: state.throttle,
-    expireTokens: () => void (valid = new Set()),
-    get tokensIssued() {
-      return state.tokensIssued;
-    },
-    approve(authorizeUrl) {
-      const url = new URL(authorizeUrl);
-      const code = `code-${codes.size + 1}`;
-      codes.set(code, {
-        challenge: url.searchParams.get('code_challenge')!,
-        redirect: url.searchParams.get('redirect_uri')!,
-      });
-      const back = new URL(url.searchParams.get('redirect_uri')!);
-      back.searchParams.set('code', code);
-      back.searchParams.set('state', url.searchParams.get('state')!);
-      return back.href;
-    },
     close: () => new Promise((resolve) => (server.closeAllConnections(), server.close(() => resolve()))),
   };
 }

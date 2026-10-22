@@ -1,6 +1,6 @@
 /** What decides the sync button's state. Times are milliseconds since 1970, 0 for never. */
 export interface SyncFacts {
-  /** Signed in to Nextcloud or Dropbox (ADR 8). */
+  /** Signed in to Nextcloud (ADR 8). */
   store: boolean;
   /** Wi-Fi sync is on and at least one phone is paired (ADR 7). */
   phones: boolean;

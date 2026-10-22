@@ -10,7 +10,7 @@ import {
   syncKey,
   type PreparedSentence,
 } from '../../src/shared/phone-library';
-import { fakeDropbox, fakeNextcloud, type FakeDropbox, type FakeNextcloud } from './fake-servers';
+import { fakeNextcloud, type FakeNextcloud } from './fake-servers';
 
 const sha256 = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
 const PDF = Buffer.from('%PDF-1.7 secret contents');
@@ -28,7 +28,6 @@ const SENTENCE: PreparedSentence = {
 
 let dir: string;
 let nextcloud: FakeNextcloud;
-let dropbox: FakeDropbox;
 let opened: string[];
 
 /** The system's secret store, played by a reversible scramble that is not plain JSON. */
@@ -46,16 +45,12 @@ const manager = (browser?: (url: string) => void): SyncManager =>
       opened.push(url);
       browser?.(url);
     },
-    dropboxKey: 'app-key',
-    dropboxHosts: dropbox.hosts,
-    dropboxPort: 0,
   });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'pdfreader-manager-'));
   opened = [];
   nextcloud = await fakeNextcloud();
-  dropbox = await fakeDropbox();
   const folder = join(dir, 'phone-library', DOC);
   await mkdir(join(folder, 'pages'), { recursive: true });
   await mkdir(join(folder, 'audio'));
@@ -76,12 +71,12 @@ beforeEach(async () => {
   );
 });
 afterEach(async () => {
-  await Promise.all([nextcloud.close(), dropbox.close(), rm(dir, { recursive: true, force: true })]);
+  await Promise.all([nextcloud.close(), rm(dir, { recursive: true, force: true })]);
 });
 
 describe('SyncManager', () => {
   it('starts with nothing connected', async () => {
-    expect(await manager().getStatus()).toEqual({ backend: 'none', account: '', dropboxAvailable: true });
+    expect(await manager().getStatus()).toEqual({ backend: 'none', account: '' });
     await expect(manager().run()).rejects.toThrow('Sign in');
   });
 
@@ -103,22 +98,8 @@ describe('SyncManager', () => {
     expect(await manager().getStatus()).toMatchObject({ backend: 'nextcloud' });
   });
 
-  it('signs in to Dropbox and sends the library there', async () => {
-    const sync = manager((url) => void fetch(dropbox.approve(url)));
-    expect(await sync.connect('dropbox', undefined)).toEqual({
-      backend: 'dropbox',
-      account: '',
-      dropboxAvailable: true,
-    });
-    expect(await sync.run()).toMatchObject({ uploaded: 1 });
-    expect([...dropbox.files.keys()]).toContain(`/${DOC}/manifest.json`);
-  });
-
-  it('switches from one service to the other', async () => {
-    await manager(() => nextcloud.approve()).connect('nextcloud', nextcloud.url);
-    const sync = manager((url) => void fetch(dropbox.approve(url)));
-    expect(await sync.connect('dropbox', undefined)).toMatchObject({ backend: 'dropbox' });
-    expect(await sync.run()).toMatchObject({ uploaded: 1 });
+  it('knows no service but Nextcloud', async () => {
+    await expect(manager().connect('dropbox', undefined)).rejects.toThrow('Unknown sync service');
   });
 
   it('keeps the key when signing out, so signing in again finds the files', async () => {

@@ -543,13 +543,13 @@ async function showSync(): Promise<void> {
   if (asked !== syncAsked) return;
   const state = syncState({ ...facts, busy: facts.busy || preparing !== undefined });
   const title = {
-    off: 'Sync is not set up: pair a phone or sign in to Nextcloud or Dropbox',
+    off: 'Sync is not set up: pair a phone or sign in to Nextcloud',
     pending:
       facts.document && !facts.prepared
         ? 'Not synced: this document is not prepared for your phone yet'
         : facts.failed
           ? 'Not synced: the last sync failed'
-          : 'Not synced: changes are not yet sent to Nextcloud or Dropbox',
+          : 'Not synced: changes are not yet sent to Nextcloud',
     syncing: preparing ? 'Syncing: preparing this document for your phone' : 'Syncing',
     done: 'Synced',
   }[state];
