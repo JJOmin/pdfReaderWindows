@@ -1,10 +1,14 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseSyncConfig, parseSyncSecrets } from '../../src/shared/sync-config';
 import {
   assertPath,
+  changedParts,
+  type Journal,
   formatSyncKey,
   newSyncKey,
   packAudio,
+  parseJournal,
   parseServerUrl,
   parseSyncKey,
   remotePath,
@@ -185,5 +189,72 @@ describe('sync config', () => {
   it('reads only the secrets it knows', () => {
     expect(parseSyncSecrets({ key: 'k', password: 3, refresh: 'r', other: 'x' })).toEqual({ key: 'k' });
     expect(parseSyncSecrets('nope')).toEqual({});
+  });
+});
+
+describe('change journal', () => {
+  const golden = JSON.parse(readFileSync('tests/golden/journal.json', 'utf8')) as {
+    key: string;
+    path: string;
+    plain: string;
+    sealedBase64: string;
+  };
+  const DOC_A = '3'.repeat(64);
+  const DOC_B = '4'.repeat(64);
+  const journal = (docs: Record<string, [number, number, number]>): Journal => ({
+    device: 'd'.repeat(32),
+    name: 'Mac',
+    updated: 1,
+    docs: Object.fromEntries(
+      Object.entries(docs).map(([id, [manifest, notes, state]]) => [id, { manifest, notes, state }]),
+    ),
+  });
+
+  it('opens the golden file, which the phone must also write byte for byte', async () => {
+    const key = parseSyncKey(golden.key)!;
+    const sealed = Uint8Array.from(Buffer.from(golden.sealedBase64, 'base64'));
+    const plain = new TextDecoder().decode(await unseal(key, golden.path, sealed));
+    expect(plain).toBe(golden.plain);
+    expect(golden.path).toBe(remotePath.journal('d'.repeat(32)));
+    const read = parseJournal(JSON.parse(plain));
+    expect(read?.name).toBe('Leos-MacBook');
+    expect(Object.keys(read?.docs ?? {})).toEqual([DOC_A, DOC_B]);
+    expect(JSON.stringify(read)).toBe(golden.plain);
+  });
+
+  it('refuses a journal without a device or a time, and drops a document it cannot read', () => {
+    expect(parseJournal(null)).toBeNull();
+    expect(parseJournal({ device: 'x', updated: 1, docs: {} })).toBeNull();
+    expect(parseJournal({ device: 'd'.repeat(32), docs: {} })).toBeNull();
+    const read = parseJournal({
+      device: 'd'.repeat(32),
+      updated: 1,
+      docs: {
+        [DOC_A]: { manifest: 1, notes: 2, state: 3 },
+        [DOC_B]: { manifest: 1 },
+        short: { manifest: 1, notes: 1, state: 1 },
+      },
+    });
+    expect(Object.keys(read?.docs ?? {})).toEqual([DOC_A]);
+    expect(read?.name).toBe('');
+  });
+
+  it('finds nothing when nothing changed', () => {
+    const j = journal({ [DOC_A]: [1, 2, 3] });
+    expect(changedParts(j, structuredClone(j)).size).toBe(0);
+  });
+
+  it('names the part that changed, whichever way the clock moved', () => {
+    const before = journal({ [DOC_A]: [1, 2, 3] });
+    expect(changedParts(before, journal({ [DOC_A]: [1, 9, 3] }))).toEqual(new Map([[DOC_A, ['notes']]]));
+    expect(changedParts(before, journal({ [DOC_A]: [1, 2, 0] }))).toEqual(new Map([[DOC_A, ['state']]]));
+  });
+
+  it('reports a new document with all its parts, and everything for a journal never read', () => {
+    const now = journal({ [DOC_A]: [1, 2, 3], [DOC_B]: [4, 0, 0] });
+    expect(changedParts(journal({ [DOC_A]: [1, 2, 3] }), now)).toEqual(
+      new Map([[DOC_B, ['manifest', 'notes', 'state']]]),
+    );
+    expect([...changedParts(null, now).keys()]).toEqual([DOC_A, DOC_B]);
   });
 });

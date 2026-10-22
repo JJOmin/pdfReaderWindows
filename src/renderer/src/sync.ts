@@ -31,6 +31,7 @@ export function setUpSync(api: Api, report: (text: string, error?: boolean) => v
     $<HTMLButtonElement>('#sync-nextcloud').disabled = waiting;
     $('#sync-cancel').hidden = !waiting;
     $<HTMLButtonElement>('#sync-now').disabled = syncing;
+    $<HTMLButtonElement>('#sync-everything').disabled = syncing;
     if (waiting) account('Waiting for you to approve in the browser…');
     else if (connected) {
       const who = status.account ? ` as ${status.account}` : '';
@@ -54,7 +55,7 @@ export function setUpSync(api: Api, report: (text: string, error?: boolean) => v
   }
 
   /** Sends the library and fetches the places. Used by the button and after a document is prepared. */
-  async function run(): Promise<void> {
+  async function run(full = false): Promise<void> {
     if (syncing) return;
     // The dialog may never have been opened in this session.
     status = await api.syncStatus();
@@ -63,7 +64,7 @@ export function setUpSync(api: Api, report: (text: string, error?: boolean) => v
     show();
     report(`Sync: sending to ${NAMES[status.backend]}`);
     try {
-      const result = await api.syncRun();
+      const result = await api.syncRun(full);
       report(`Sync: ${describe(result)}.`);
     } catch (error) {
       report(`Sync: ${message(error)}`, true);
@@ -76,6 +77,7 @@ export function setUpSync(api: Api, report: (text: string, error?: boolean) => v
   $('#sync-nextcloud').addEventListener('click', () => void sign('nextcloud'));
   $('#sync-cancel').addEventListener('click', () => void api.syncCancel());
   $('#sync-now').addEventListener('click', () => void run());
+  $('#sync-everything').addEventListener('click', () => void run(true));
   $('#sync-disconnect').addEventListener('click', () => {
     void api.syncDisconnect().then((next) => {
       status = next;

@@ -8,6 +8,8 @@ export interface RemoteEntry {
   name: string;
   folder: boolean;
   size: number;
+  /** Changes whenever the file does, when the store says so (WebDAV's ETag). */
+  etag?: string;
 }
 
 /**
@@ -42,7 +44,70 @@ export const remotePath = {
   state: (docId: string, device: string): string => `${docId}/state/${device}.json`,
   /** The document's marks and comments, merged per mark (ADR 7 section 1). */
   notes: (docId: string): string => `${docId}/notes.json`,
+  /** Where every device's change journal lies (ADR 10 section 2). */
+  journals: 'devices',
+  journal: (device: string): string => `devices/${device}.json`,
 };
+
+export const JOURNAL_PARTS = ['manifest', 'notes', 'state'] as const;
+export type JournalPart = (typeof JOURNAL_PARTS)[number];
+
+/** When each part of a document last changed on the device that wrote the journal. */
+export type JournalDoc = Record<JournalPart, number>;
+
+/**
+ * One device's list of its latest changes, sealed in `devices/<device>.json`. Another device that
+ * has read it before can tell from the difference which documents and parts to fetch. It is a
+ * hint: a full walk of the store repairs whatever a lost journal missed.
+ */
+export interface Journal {
+  device: string;
+  name: string;
+  updated: number;
+  docs: Record<string, JournalDoc>;
+}
+
+const DEVICE_ID = /^[0-9a-f]{32}$/;
+const DOC_ID = /^[0-9a-f]{64}$/;
+
+const time = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+
+/** Reads a journal; documents with a bad id or time are dropped, a bad device id makes it null. */
+export function parseJournal(value: unknown): Journal | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const input = value as Record<string, unknown>;
+  const updated = time(input.updated);
+  if (typeof input.device !== 'string' || !DEVICE_ID.test(input.device) || updated === null) return null;
+  const docs: Record<string, JournalDoc> = {};
+  const entries = typeof input.docs === 'object' && input.docs !== null ? Object.entries(input.docs) : [];
+  for (const [docId, raw] of entries) {
+    const part = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+    const manifest = time(part.manifest);
+    const notes = time(part.notes);
+    const state = time(part.state);
+    if (DOC_ID.test(docId) && manifest !== null && notes !== null && state !== null) {
+      docs[docId] = { manifest, notes, state };
+    }
+  }
+  const name = typeof input.name === 'string' && input.name.length <= 256 ? input.name : '';
+  return { device: input.device, name, updated, docs };
+}
+
+/**
+ * The documents, and which of their parts, that differ between the journal as it was last read
+ * and now. Times are compared for difference, not order, so a device with a wrong clock still
+ * gets its changes noticed. Without an earlier journal everything in it is new.
+ */
+export function changedParts(seen: Journal | null, now: Journal): Map<string, JournalPart[]> {
+  const changed = new Map<string, JournalPart[]>();
+  for (const [docId, doc] of Object.entries(now.docs)) {
+    const before = seen?.docs[docId];
+    const parts = JOURNAL_PARTS.filter((part) => !before || before[part] !== doc[part]);
+    if (parts.length > 0) changed.set(docId, parts);
+  }
+  return changed;
+}
 
 const KEY = /^[0-9a-f]{40}$/;
 

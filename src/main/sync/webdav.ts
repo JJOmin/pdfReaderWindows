@@ -36,7 +36,8 @@ export function parsePropfind(xml: string, dir: URL): RemoteEntry[] {
     if (withSlash(path) === own) continue;
     const name = path.replace(/\/$/u, '').split('/').pop() ?? '';
     const size = Number(/<(?:\w+:)?getcontentlength>(\d+)</u.exec(block)?.[1] ?? 0);
-    if (name) entries.push({ name, folder, size });
+    const etag = /<(?:\w+:)?getetag>([^<]*)</u.exec(block)?.[1];
+    if (name) entries.push({ name, folder, size, ...(etag ? { etag } : {}) });
   }
   return entries;
 }

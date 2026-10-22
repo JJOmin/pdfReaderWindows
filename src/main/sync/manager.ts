@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import {
   parseSyncConfig,
   parseSyncSecrets,
@@ -14,14 +14,18 @@ import {
   type SyncStore,
 } from '../../shared/sync-store';
 import type { SyncReport, SyncStatus } from '../../shared/types';
-import { syncLibrary } from './engine';
+import { newMemo, parseMemo, syncLibrary, type SyncMemo } from './engine';
 import { WebDavStore, nextcloudDavBase, nextcloudLogin } from './webdav';
 
 export interface SyncOptions {
   /** `sync.json` in the user data folder. */
   configPath: string;
+  /** What a sync remembers for the next one (the change journals of ADR 10). */
+  memoPath: string;
   /** The phone library of ADR 7. */
   libraryRoot: string;
+  /** This computer's name, as the other devices show it. */
+  deviceName: string;
   /** Encrypts the secrets with what the operating system keeps for this user. */
   box: { encrypt(text: string): string; decrypt(text: string): string };
   /** Opens an address in the user's own browser. */
@@ -101,6 +105,7 @@ export class SyncManager {
       Object.assign(config, { backend, server: url.href.replace(/\/$/u, ''), user: login.user });
       secrets.password = login.password;
       await this.save(config, secrets);
+      await this.forget();
       return this.status(config);
     } finally {
       if (this.signingIn === attempt) this.signingIn = undefined;
@@ -116,6 +121,7 @@ export class SyncManager {
     Object.assign(config, { backend: 'none', server: '', user: '' });
     // The key stays, so signing in again finds the files that are already in the store.
     await this.save(config, { key: secrets.key });
+    await this.forget();
     return this.status(config);
   }
 
@@ -134,7 +140,21 @@ export class SyncManager {
     const { config, secrets } = await this.load();
     secrets.key = formatSyncKey(key);
     await this.save(config, secrets);
+    await this.forget();
     return secrets.key;
+  }
+
+  /** A sync after a new account or key must walk everything, since the memo describes another store. */
+  private forget(): Promise<void> {
+    return rm(this.options.memoPath, { force: true });
+  }
+
+  private async loadMemo(): Promise<SyncMemo> {
+    try {
+      return parseMemo(JSON.parse(await readFile(this.options.memoPath, 'utf8')));
+    } catch {
+      return newMemo();
+    }
   }
 
   private store(config: SyncConfig, secrets: SyncSecrets): SyncStore {
@@ -144,7 +164,8 @@ export class SyncManager {
     throw new Error('Sign in to a sync service first');
   }
 
-  async run(): Promise<SyncReport> {
+  /** `full` walks the whole store instead of what the journals say changed. */
+  async run(full = false): Promise<SyncReport> {
     if (this.running) throw new Error('Syncing is already running');
     this.running = true;
     try {
@@ -152,13 +173,16 @@ export class SyncManager {
       const store = this.store(config, secrets);
       const key = parseSyncKey(secrets.key ?? '');
       if (!key) throw new Error('There is no sync key');
-      return await syncLibrary(
-        store,
-        key,
-        this.options.libraryRoot,
-        config.deviceId,
-        this.options.onNotesChanged,
-      );
+      const memo = await this.loadMemo();
+      const report = await syncLibrary(store, key, this.options.libraryRoot, config.deviceId, {
+        memo,
+        full,
+        name: this.options.deviceName,
+        onNotesChanged: this.options.onNotesChanged,
+      });
+      // Saved only when the sync finished, so a failed one is repeated from the same journals.
+      await writeFile(this.options.memoPath, JSON.stringify(memo));
+      return report;
     } finally {
       this.running = false;
     }

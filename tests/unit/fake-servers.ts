@@ -52,6 +52,8 @@ export async function fakeNextcloud(options: FakeNextcloudOptions = {}): Promise
   const files = new Map<string, Buffer>();
   const folders = new Set<string>(['']);
   let approved = false;
+  /** How often each file was written: its ETag, as a real server keeps one. */
+  const versions = new Map<string, number>();
   const prefix = '/remote.php/dav/files/alice/';
   const server = await listen(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
@@ -89,6 +91,7 @@ export async function fakeNextcloud(options: FakeNextcloudOptions = {}): Promise
       case 'PUT':
         if (!folders.has(parent)) return void res.writeHead(409).end();
         files.set(path, await body(req));
+        versions.set(path, (versions.get(path) ?? 0) + 1);
         return void res.writeHead(201).end();
       case 'GET': {
         const file = files.get(path);
@@ -101,7 +104,7 @@ export async function fakeNextcloud(options: FakeNextcloudOptions = {}): Promise
           `<d:propstat><d:prop>${
             folder
               ? '<d:resourcetype><d:collection/></d:resourcetype>'
-              : `<d:resourcetype/><d:getcontentlength>${size}</d:getcontentlength>`
+              : `<d:resourcetype/><d:getcontentlength>${size}</d:getcontentlength><d:getetag>"${p}-${versions.get(p) ?? 0}"</d:getetag>`
           }</d:prop></d:propstat></d:response>`;
         const inside = (p: string): boolean =>
           p !== path && p.slice(0, p.lastIndexOf('/')) === path && p !== '';

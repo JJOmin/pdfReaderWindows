@@ -10,6 +10,7 @@ import {
   syncKey,
   type PreparedSentence,
 } from '../../src/shared/phone-library';
+import { formatSyncKey, newSyncKey } from '../../src/shared/sync-store';
 import { fakeNextcloud, type FakeNextcloud } from './fake-servers';
 
 const sha256 = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
@@ -39,6 +40,8 @@ const box = {
 const manager = (browser?: (url: string) => void): SyncManager =>
   new SyncManager({
     configPath: join(dir, 'sync.json'),
+    memoPath: join(dir, 'sync-memo.json'),
+    deviceName: 'Test-Mac',
     libraryRoot: join(dir, 'phone-library'),
     box,
     openUrl: (url) => {
@@ -96,6 +99,26 @@ describe('SyncManager', () => {
     expect([...nextcloud.files.keys()]).toContain(`PDF Reader/${DOC}/manifest.json`);
     for (const bytes of nextcloud.files.values()) expect(bytes.toString('latin1')).not.toContain('secret');
     expect(await manager().getStatus()).toMatchObject({ backend: 'nextcloud' });
+  });
+
+  it('asks for nothing but the journals on the second run, and walks everything on request', async () => {
+    const sync = manager(() => nextcloud.approve());
+    await sync.connect('nextcloud', nextcloud.url);
+    await sync.run();
+    const before = new Map([...nextcloud.files].map(([path, bytes]) => [path, bytes]));
+    expect(await sync.run()).toEqual({ documents: 1, uploaded: 0, unreadable: 0 });
+    // Nothing was written again.
+    for (const [path, bytes] of nextcloud.files) expect(bytes).toBe(before.get(path));
+    expect([...nextcloud.files.keys()].some((p) => p.startsWith('PDF Reader/devices/'))).toBe(true);
+    expect(await sync.run(true)).toEqual({ documents: 1, uploaded: 0, unreadable: 0 });
+  });
+
+  it('starts again with a full walk when the key changes, since the memo described the old files', async () => {
+    const sync = manager(() => nextcloud.approve());
+    await sync.connect('nextcloud', nextcloud.url);
+    await sync.run();
+    await sync.setKey(formatSyncKey(newSyncKey()));
+    expect((await sync.run()).uploaded).toBe(1);
   });
 
   it('knows no service but Nextcloud', async () => {
@@ -157,6 +180,8 @@ describe('SyncManager', () => {
     await sync.connect('nextcloud', nextcloud.url);
     const other = new SyncManager({
       configPath: join(dir, 'sync.json'),
+      memoPath: join(dir, 'sync-memo.json'),
+      deviceName: 'Test-Mac',
       libraryRoot: join(dir, 'phone-library'),
       box: {
         encrypt: box.encrypt,

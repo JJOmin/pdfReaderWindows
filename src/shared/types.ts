@@ -264,8 +264,11 @@ export interface Api {
   syncKey(): Promise<string>;
   /** Replaces the key with one from another device. Returns the key as stored. */
   syncSetKey(key: string): Promise<string>;
-  /** Sends the phone library to the store and fetches the other devices' places. */
-  syncRun(): Promise<SyncReport>;
+  /**
+   * Sends the phone library to the store and fetches what the other devices changed. `full` walks
+   * the whole store instead of asking the change journals (ADR 10 section 2).
+   */
+  syncRun(full?: boolean): Promise<SyncReport>;
   phoneServer(): Promise<PhoneServerStatus>;
   /** Switches phone sync on the local network on or off (ADR 7). It stays so across restarts. */
   phoneServerEnable(on: boolean): Promise<PhoneServerStatus>;

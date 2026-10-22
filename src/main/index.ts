@@ -76,6 +76,8 @@ const changedForStore = (): void => {
 };
 const sync = new SyncManager({
   configPath: join(app.getPath('userData'), 'sync.json'),
+  memoPath: join(app.getPath('userData'), 'sync-memo.json'),
+  deviceName: hostname(),
   libraryRoot,
   box: secretBox,
   // The marks a sync brought for the open document are shown at once, as a phone's over Wi-Fi are.
@@ -379,12 +381,12 @@ function registerIpc(): void {
   ipcMain.handle('sync:disconnect', () => sync.disconnect().finally(syncChanged));
   ipcMain.handle('sync:key', () => sync.key());
   ipcMain.handle('sync:set-key', (_event, key: unknown) => sync.setKey(key));
-  ipcMain.handle('sync:run', async () => {
+  ipcMain.handle('sync:run', async (_event, full: unknown) => {
     const started = Date.now();
     storeSync.busy = true;
     syncChanged();
     try {
-      const report = await sync.run();
+      const report = await sync.run(full === true);
       storeSync.syncedAt = started;
       storeSync.failed = false;
       return report;

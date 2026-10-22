@@ -1,13 +1,67 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseNotes } from '../../shared/notes';
 import { mergeNotes } from '../../shared/notes-merge';
 import { parseDeviceState, parseManifest, parsePageIndex, type Manifest } from '../../shared/phone-library';
-import { packAudio, remotePath, seal, unseal, type SyncStore } from '../../shared/sync-store';
+import {
+  changedParts,
+  packAudio,
+  parseJournal,
+  remotePath,
+  seal,
+  unseal,
+  type Journal,
+  type JournalDoc,
+  type JournalPart,
+  type SyncStore,
+} from '../../shared/sync-store';
 import type { NotesFile, SyncReport } from '../../shared/types';
 
 const DOC_ID = /^[0-9a-f]{64}$/;
 const STATE_FILE = /^([0-9a-f]{32})\.json$/;
+const JOURNAL_FILE = STATE_FILE;
+
+const sha256 = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
+
+/**
+ * What this computer remembers between syncs (kept by the manager in a file of its own): the
+ * journals of the other devices as last processed, this computer's own journal so that a lost one
+ * can be written again, and the hash of what it last exchanged for each document, so that a local
+ * change is known without asking the store.
+ */
+export interface SyncMemo {
+  seen: Record<string, { etag: string; journal: Journal }>;
+  own: Record<string, JournalDoc>;
+  synced: Record<string, { notes?: string; state?: string }>;
+}
+
+export const newMemo = (): SyncMemo => ({ seen: {}, own: {}, synced: {} });
+
+/** Reads the memo; anything damaged is forgotten, which only means the next sync walks everything. */
+export function parseMemo(value: unknown): SyncMemo {
+  const memo = newMemo();
+  if (typeof value !== 'object' || value === null) return memo;
+  const input = value as { seen?: unknown; own?: unknown; synced?: unknown };
+  const record = (v: unknown): [string, unknown][] =>
+    typeof v === 'object' && v !== null ? Object.entries(v) : [];
+  for (const [device, raw] of record(input.seen)) {
+    const entry = raw as { etag?: unknown; journal?: unknown } | null;
+    const journal = parseJournal(entry?.journal);
+    if (journal && journal.device === device) {
+      memo.seen[device] = { etag: typeof entry?.etag === 'string' ? entry.etag : '', journal };
+    }
+  }
+  memo.own = parseJournal({ device: 'f'.repeat(32), updated: 0, docs: input.own })?.docs ?? {};
+  for (const [docId, raw] of record(input.synced)) {
+    const entry = raw as { notes?: unknown; state?: unknown } | null;
+    memo.synced[docId] = {
+      ...(typeof entry?.notes === 'string' ? { notes: entry.notes } : {}),
+      ...(typeof entry?.state === 'string' ? { state: entry.state } : {}),
+    };
+  }
+  return memo;
+}
 
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8'));
@@ -64,8 +118,22 @@ async function uploadDocument(
 }
 
 /**
- * Exchanges the places. This computer's own state goes up, and the other devices' come down into
- * `state/`, where the app reads them. Each device writes only its own file, so nothing is merged.
+ * The hash of this computer's own place, or null when it has none. A change here is known from it
+ * without asking the store.
+ */
+async function ownStateHash(folder: string, device: string): Promise<string | null> {
+  try {
+    return sha256(await readFile(join(folder, 'state', `${device}.json`)));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+/**
+ * Exchanges the places. This computer's own state goes up when `push` says so, and the other
+ * devices' come down into `state/`, where the app reads them when `pull` says so. Each device
+ * writes only its own file, so nothing is merged.
  * Returns how many files from another device could not be read.
  */
 async function exchangeStates(
@@ -74,16 +142,19 @@ async function exchangeStates(
   folder: string,
   docId: string,
   device: string,
+  { push, pull }: { push: boolean; pull: boolean },
 ): Promise<number> {
   const local = join(folder, 'state');
-  const own = join(local, `${device}.json`);
-  try {
-    const bytes = await readFile(own);
-    const path = remotePath.state(docId, device);
-    await store.put(path, await seal(key, path, bytes));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  if (push) {
+    try {
+      const bytes = await readFile(join(local, `${device}.json`));
+      const path = remotePath.state(docId, device);
+      await store.put(path, await seal(key, path, bytes));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
+  if (!pull) return 0;
 
   let unreadable = 0;
   for (const entry of await store.list(remotePath.states(docId))) {
@@ -121,7 +192,7 @@ async function exchangeNotes(
   key: Uint8Array,
   folder: string,
   docId: string,
-): Promise<{ unreadable: number; changed: boolean }> {
+): Promise<{ unreadable: number; changed: boolean; sent: boolean; hash: string | null }> {
   const file = join(folder, 'notes.json');
   let local: NotesFile | null = null;
   try {
@@ -138,32 +209,108 @@ async function exchangeNotes(
     } catch {
       // Another key, or a changed file: left as it is, and counted.
     }
-    if (!remote) return { unreadable: 1, changed: false };
+    if (!remote) return { unreadable: 1, changed: false, sent: false, hash: null };
   }
   const merged = local && remote ? mergeNotes(local, remote) : (local ?? remote);
-  if (!merged) return { unreadable: 0, changed: false };
+  if (!merged) return { unreadable: 0, changed: false, sent: false, hash: null };
   const text = JSON.stringify(merged, null, 2);
   let changed = false;
   if (!local || JSON.stringify(local, null, 2) !== text) {
     await writeFile(file, text);
     changed = true;
   }
-  if (!remote || JSON.stringify(remote, null, 2) !== text) {
-    await store.put(path, await seal(key, path, new TextEncoder().encode(text)));
+  const sent = !remote || JSON.stringify(remote, null, 2) !== text;
+  if (sent) await store.put(path, await seal(key, path, new TextEncoder().encode(text)));
+  return { unreadable: 0, changed, sent, hash: sha256(text) };
+}
+
+/** The hash `exchangeNotes` would record for the notes file here, or null when there is none. */
+async function localNotesHash(folder: string): Promise<string | null> {
+  try {
+    const notes = parseNotes(JSON.parse(await readFile(join(folder, 'notes.json'), 'utf8')));
+    return notes && sha256(JSON.stringify(notes, null, 2));
+  } catch {
+    return null;
   }
-  return { unreadable: 0, changed };
 }
 
 /**
- * Brings the store and the phone library in `root` up to date with each other. `onNotesChanged` is
- * told which documents' notes changed here, so that one that is open can show them.
+ * Reads the other devices' journals and says which documents changed since this computer last
+ * looked. One listing of `devices/` costs one request; only a journal whose ETag moved is opened.
+ * `full` opens every journal and reports every document as changed.
+ */
+async function pollJournals(
+  store: SyncStore,
+  key: Uint8Array,
+  device: string,
+  memo: SyncMemo,
+  full: boolean,
+): Promise<{
+  changed: Map<string, JournalPart[]>;
+  opened: SyncMemo['seen'];
+  own: Journal | null;
+  unreadable: number;
+}> {
+  const changed = new Map<string, JournalPart[]>();
+  const opened: SyncMemo['seen'] = {};
+  let own: Journal | null = null;
+  let unreadable = 0;
+  for (const entry of await store.list(remotePath.journals)) {
+    const match = JOURNAL_FILE.exec(entry.name);
+    if (!match || entry.folder) continue;
+    const id = match[1]!;
+    // This computer's own journal is only read to repair it, in a full walk.
+    if (id === device && !full) continue;
+    const before = memo.seen[id];
+    if (id !== device && !full && entry.etag && before?.etag === entry.etag) continue;
+    const path = remotePath.journal(id);
+    const bytes = await fetchSealed(store, key, path);
+    let journal: Journal | null;
+    try {
+      journal = bytes && parseJournal(JSON.parse(new TextDecoder().decode(bytes)));
+    } catch {
+      journal = null;
+    }
+    // A journal belongs to the device whose name the file carries.
+    if (!journal || journal.device !== id) {
+      unreadable++;
+      continue;
+    }
+    if (id === device) {
+      own = journal;
+      continue;
+    }
+    opened[id] = { etag: entry.etag ?? '', journal };
+    for (const [docId, parts] of changedParts(full ? null : (before?.journal ?? null), journal)) {
+      changed.set(docId, [...new Set([...(changed.get(docId) ?? []), ...parts])]);
+    }
+  }
+  return { changed, opened, own, unreadable };
+}
+
+export interface SyncOptions {
+  /** What the last sync left; without it everything is walked. Changed in place. */
+  memo?: SyncMemo;
+  /** This computer's name as the journal shows it to the other devices. */
+  name?: string;
+  /** Walk the whole store instead of what the journals say changed ("Refresh everything"). */
+  full?: boolean;
+  /** Told which documents' notes changed here, so that one that is open can show them. */
+  onNotesChanged?: (docId: string) => void;
+}
+
+/**
+ * Brings the store and the phone library in `root` up to date with each other. A sync that has a
+ * memo asks the store one question, which journals changed, and touches only the documents and
+ * parts they name, plus whatever changed here. The first sync, one after the memo was lost and a
+ * `full` one walk everything, which also repairs a journal that was lost.
  */
 export async function syncLibrary(
   store: SyncStore,
   key: Uint8Array,
   root: string,
   device: string,
-  onNotesChanged: (docId: string) => void = () => undefined,
+  { memo = newMemo(), name = '', full = false, onNotesChanged = () => undefined }: SyncOptions = {},
 ): Promise<SyncReport> {
   const report: SyncReport = { documents: 0, uploaded: 0, unreadable: 0 };
   let names: string[];
@@ -172,6 +319,23 @@ export async function syncLibrary(
   } catch {
     return report;
   }
+  // Nothing sent yet means nothing is known: walk everything once.
+  const walk = full || Object.keys(memo.own).length === 0;
+  const poll = await pollJournals(store, key, device, memo, walk);
+  report.unreadable += poll.unreadable;
+  // A memo lost while the store kept this computer's journal starts from that journal.
+  if (Object.keys(memo.own).length === 0 && poll.own) memo.own = poll.own.docs;
+
+  const own: Record<string, JournalDoc> = {};
+  const nextSynced: SyncMemo['synced'] = {};
+  let dirty = false;
+  const stamp = (docId: string, part: JournalPart, at: number): void => {
+    // Strictly later, since the readers compare for a difference.
+    const was = memo.own[docId]?.[part] ?? -1;
+    own[docId]![part] = Math.max(at, was + 1);
+    dirty = true;
+  };
+
   for (const docId of names.filter((n) => DOC_ID.test(n))) {
     const folder = join(root, docId);
     // No manifest means the document is still being prepared.
@@ -183,11 +347,60 @@ export async function syncLibrary(
     }
     if (!manifest || manifest.docId !== docId) continue;
     report.documents++;
-    if (await uploadDocument(store, key, folder, manifest)) report.uploaded++;
-    report.unreadable += await exchangeStates(store, key, folder, docId, device);
-    const notes = await exchangeNotes(store, key, folder, docId);
-    report.unreadable += notes.unreadable;
-    if (notes.changed) onNotesChanged(docId);
+    own[docId] = { manifest: 0, notes: 0, state: 0, ...memo.own[docId] };
+    const parts = poll.changed.get(docId) ?? [];
+    const synced = (nextSynced[docId] = { ...memo.synced[docId] });
+
+    if (
+      (walk || own[docId].manifest !== manifest.updated) &&
+      (await uploadDocument(store, key, folder, manifest))
+    ) {
+      report.uploaded++;
+    }
+    if (own[docId].manifest !== manifest.updated) {
+      own[docId].manifest = manifest.updated;
+      dirty = true;
+    }
+
+    const stateHash = await ownStateHash(folder, device);
+    const stateChanged = stateHash !== null && stateHash !== synced.state;
+    report.unreadable += await exchangeStates(store, key, folder, docId, device, {
+      push: walk || stateChanged,
+      pull: walk || parts.includes('state'),
+    });
+    if (stateChanged) {
+      stamp(docId, 'state', Date.now());
+      synced.state = stateHash;
+    }
+
+    const notesHash = await localNotesHash(folder);
+    if (walk || parts.includes('notes') || (notesHash !== null && notesHash !== synced.notes)) {
+      const notes = await exchangeNotes(store, key, folder, docId);
+      report.unreadable += notes.unreadable;
+      if (notes.changed) onNotesChanged(docId);
+      if (notes.sent) stamp(docId, 'notes', Date.now());
+      if (notes.hash) synced.notes = notes.hash;
+    }
   }
+
+  // Documents no longer in the library leave the journal too.
+  if (Object.keys(own).length !== Object.keys(memo.own).length) dirty = true;
+  // A journal the store lost, or that differs from ours, is written again by any full walk.
+  if (
+    walk &&
+    (poll.own ? JSON.stringify(poll.own.docs) !== JSON.stringify(own) : Object.keys(own).length > 0)
+  ) {
+    dirty = true;
+  }
+  // Last, so that nobody is told of a part that is not in the store yet.
+  if (dirty) {
+    const journal: Journal = { device, name, updated: Date.now(), docs: own };
+    const path = remotePath.journal(device);
+    await store.put(path, await seal(key, path, new TextEncoder().encode(JSON.stringify(journal))));
+  }
+  // Only now are the journals of the others read: a sync that failed above reads them again.
+  memo.own = own;
+  memo.synced = nextSynced;
+  Object.assign(memo.seen, poll.opened);
   return report;
 }

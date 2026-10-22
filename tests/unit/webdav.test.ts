@@ -28,6 +28,13 @@ describe('parsePropfind', () => {
     ]);
   });
 
+  it('reads the ETag a server gives, which a journal poll compares', () => {
+    const etag = `<d:multistatus><d:response><d:href>/remote.php/dav/files/alice/PDF%20Reader/devices/x.json</d:href><d:propstat><d:prop><d:getetag>&quot;5f3a&quot;</d:getetag></d:prop></d:propstat></d:response></d:multistatus>`;
+    expect(parsePropfind(etag, dir)).toEqual([
+      { name: 'x.json', folder: false, size: 0, etag: '&quot;5f3a&quot;' },
+    ]);
+  });
+
   it('reads a full address in the href', () => {
     const full = `<d:multistatus><d:response><d:href>https://cloud.example.com/remote.php/dav/files/alice/PDF%20Reader/x.pack</d:href><d:getcontentlength>7</d:getcontentlength></d:response></d:multistatus>`;
     expect(parsePropfind(full, dir)).toEqual([{ name: 'x.pack', folder: false, size: 7 }]);
@@ -41,6 +48,16 @@ describe('WebDavStore', () => {
     expect(await webdav.get('doc/pages/1.json')).toEqual(text('hello'));
     expect([...server.folders].sort()).toEqual(['', 'PDF Reader', 'PDF Reader/doc', 'PDF Reader/doc/pages']);
     expect(server.files.get('PDF Reader/doc/pages/1.json')?.toString()).toBe('hello');
+  });
+
+  it('lists a file with an ETag that changes when the file is written again', async () => {
+    const webdav = store();
+    await webdav.put('devices/a.json', text('one'));
+    const [first] = await webdav.list('devices');
+    expect(first?.etag).toBeTruthy();
+    expect((await webdav.list('devices'))[0]?.etag).toBe(first?.etag);
+    await webdav.put('devices/a.json', text('two'));
+    expect((await webdav.list('devices'))[0]?.etag).not.toBe(first?.etag);
   });
 
   it('replaces a file and works with folders that already exist', async () => {
@@ -61,11 +78,13 @@ describe('WebDavStore', () => {
     await webdav.put('doc/state/ab.json', text('x'));
     expect(await webdav.list('doc')).toEqual(
       expect.arrayContaining([
-        { name: 'manifest.json', folder: false, size: 5 },
+        { name: 'manifest.json', folder: false, size: 5, etag: expect.any(String) },
         { name: 'state', folder: true, size: 0 },
       ]),
     );
-    expect(await webdav.list('doc/state')).toEqual([{ name: 'ab.json', folder: false, size: 1 }]);
+    expect(await webdav.list('doc/state')).toEqual([
+      { name: 'ab.json', folder: false, size: 1, etag: expect.any(String) },
+    ]);
     expect(await webdav.list('nothing')).toEqual([]);
   });
 
