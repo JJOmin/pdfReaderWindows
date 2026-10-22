@@ -141,9 +141,24 @@ the Ryzen 7 3700X.
 - `tests/fixtures/sample.pdf` is now committed. Made on the Mac, it breaks "Sprachsyn-these" over
   two lines, and the phone's golden files need the Windows bytes.
 
+## Phone sync from the Mac (MAC4, 2026-10-22)
+
+- The phone heard the Mac's announcement after 2.0 s, paired, downloaded the sample and read it,
+  and marks went both ways, with the same tests as against the Windows PC.
+- **A VPN on the Mac stopped it.** With Surfshark's WireGuard tunnel connected, the phone still
+  heard the announcement, and its connection to port 47613 was accepted, but no reply came back:
+  not even the Mac reached its own Wi-Fi address. With the VPN off everything worked. The app
+  cannot fix this, so the Phone dialog says it: an ⓘ beside "Phones on this network" explains it,
+  a warning shows while an interface that looks like a VPN carries IPv4 (`vpnInterfaces` in
+  `shared/pairing.ts`), and the addresses to type leave tunnels out (`lanAddresses`).
+- No prompt appeared in development: the macOS firewall already allowed Electron, and macOS did
+  not ask for Local Network access for Electron's own binary. The packaged app still declares
+  `NSLocalNetworkUsageDescription` (MAC5), because a signed app of its own may be asked.
+
 ## Not verified
 
 - The speeds without Low Power Mode, which should be faster.
+- Sync through Nextcloud or Dropbox from the Mac.
 - That the multicast announcement reaches the phone from the Mac on the owner's Wi-Fi, and when
   macOS shows the Local Network prompt. Checked in MAC4.
 - That electron-builder's ad-hoc signature covers the unpacked `.dylib` files so that the

@@ -693,6 +693,7 @@ dialog p {
 }
 
 #lan-code {
+  white-space: nowrap;
   font-family: ui-monospace, monospace;
   font-size: 18px;
   letter-spacing: 0.08em;
@@ -730,6 +731,54 @@ dialog p {
 
 #lan-error.error {
   color: var(--red);
+}
+
+#lan-vpn {
+  color: light-dark(#8a5a00, #f0b84a);
+}
+
+.heading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.heading-row h3 {
+  margin: 1em 0;
+}
+
+/* An explanation behind an ⓘ, opened in place so it never covers what it explains. */
+details.info {
+  display: contents;
+}
+
+details.info > summary {
+  list-style: none;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 16px;
+  line-height: 1;
+}
+
+details.info > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.info > div {
+  flex-basis: 100%;
+  order: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+details.info > div p {
+  margin: 0 0 6px;
+}
+
+.heading-row:has(details.info[open]) {
+  flex-wrap: wrap;
 }
 
 #place-offer {

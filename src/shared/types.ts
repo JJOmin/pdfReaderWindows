@@ -216,6 +216,8 @@ export interface PhoneServerStatus {
   port: number;
   /** This computer's addresses, for typing on a network that blocks multicast. */
   addresses: string[];
+  /** Interfaces that look like a VPN, which usually keeps the phone from connecting. */
+  vpn: string[];
   phones: { device: string; name: string; paired: number }[];
 }
 

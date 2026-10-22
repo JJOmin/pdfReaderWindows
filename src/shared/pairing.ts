@@ -119,3 +119,33 @@ export function parseAnnouncement(bytes: Uint8Array): { name: string; port: numb
     return null;
   }
 }
+
+/** What `os.networkInterfaces()` returns, reduced to what is used here. */
+export type Interfaces = Record<string, { family: string; address: string; internal: boolean }[] | undefined>;
+
+/**
+ * Tunnels by name: utun, tun, tap, wg, ppp and ipsec on the Mac and Linux; on Windows the adapter's
+ * name, which the VPN chooses. The Mac keeps utun interfaces with IPv6 only for its own services.
+ */
+const TUNNEL =
+  /^(utun|tun|tap|wg|ppp|ipsec)\d+$|vpn|wireguard|surfshark|nordlynx|proton|openvpn|tailscale|zerotier|wintun|tap-windows/iu;
+
+const hasIPv4 = (list: Interfaces[string]): boolean =>
+  (list ?? []).some((a) => a.family === 'IPv4' && !a.internal);
+
+/**
+ * Interfaces that look like a VPN carrying IPv4. While one is on, replies to the phone often go
+ * into the tunnel instead of the Wi-Fi: the phone hears the announcement but cannot connect.
+ */
+export const vpnInterfaces = (interfaces: Interfaces): string[] =>
+  Object.entries(interfaces)
+    .filter(([name, list]) => TUNNEL.test(name) && hasIPv4(list))
+    .map(([name]) => name);
+
+/** This computer's IPv4 addresses a phone on the same network can type: no loopback, no tunnels. */
+export const lanAddresses = (interfaces: Interfaces): string[] =>
+  Object.entries(interfaces)
+    .filter(([name]) => !TUNNEL.test(name))
+    .flatMap(([, list]) => list ?? [])
+    .filter((a) => a.family === 'IPv4' && !a.internal)
+    .map((a) => a.address);

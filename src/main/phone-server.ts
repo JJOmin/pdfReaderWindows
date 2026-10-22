@@ -9,11 +9,13 @@ import { join } from 'node:path';
 import { selfSignedCertificate } from '../shared/certificate';
 import {
   announcement,
+  lanAddresses,
   pairingCode,
   parseBearer,
   parsePairRequest,
   parseRequest,
   PROTOCOL_VERSION,
+  vpnInterfaces,
 } from '../shared/pairing';
 import { parseDeviceState, parseManifest, type Manifest } from '../shared/phone-library';
 import { mergeNotes } from '../shared/notes-merge';
@@ -194,10 +196,8 @@ export class PhoneServer {
       error: this.error,
       code: identity ? pairingCode(identity.fingerprint) : '',
       port: this.port,
-      addresses: Object.values(networkInterfaces())
-        .flat()
-        .filter((a) => a && a.family === 'IPv4' && !a.internal)
-        .map((a) => a!.address),
+      addresses: lanAddresses(networkInterfaces()),
+      vpn: vpnInterfaces(networkInterfaces()),
       phones: phones.map(({ device, name, paired }) => ({ device, name, paired })),
     };
   }

@@ -19,6 +19,10 @@ export function setUpPhones(api: Api): void {
       status.addresses.length > 0
         ? `If the phone does not list it, type ${status.addresses.map((a) => `${a}:${status.port}`).join(' or ')}`
         : '';
+    $('#lan-vpn').hidden = !status.enabled || status.vpn.length === 0;
+    $('#lan-vpn').textContent =
+      `A VPN seems to be on (${status.vpn.join(', ')}). While it is, the phone may find this computer but ` +
+      'not connect. See ⓘ above.';
     const list = $('#lan-phones');
     list.replaceChildren(
       ...status.phones.map(({ device, name, paired }) => {

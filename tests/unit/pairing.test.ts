@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   announcement,
   codeMatches,
+  lanAddresses,
   normalizeCode,
   pairingCode,
   parseAnnouncement,
   parseBearer,
   parsePairRequest,
   parseRequest,
+  vpnInterfaces,
 } from '../../src/shared/pairing';
 
 const FINGERPRINT = '9c1e4d7a03bb5f2e' + 'ab'.repeat(24);
@@ -137,5 +139,44 @@ describe('announcement', () => {
     expect(
       parseAnnouncement(new TextEncoder().encode('{"app":"pdfreader","protocol":1,"name":"x","port":70000}')),
     ).toBeNull();
+  });
+});
+
+describe('vpnInterfaces and lanAddresses', () => {
+  const v4 = (address: string, internal = false) => ({ family: 'IPv4', address, internal });
+  const v6 = (address: string) => ({ family: 'IPv6', address, internal: false });
+
+  it('names a tunnel that carries IPv4, on the Mac and on Windows', () => {
+    const mac = {
+      lo0: [v4('127.0.0.1', true)],
+      en0: [v4('192.168.1.215')],
+      // The Mac always has a few tunnels for its own services; with only IPv6 they are no VPN.
+      utun0: [v6('fe80::1')],
+      utun18: [v4('10.14.0.2')],
+    };
+    expect(vpnInterfaces(mac)).toEqual(['utun18']);
+    const windows = {
+      'Wi-Fi': [v4('192.168.1.20')],
+      'Surfshark WireGuard': [v4('10.14.0.2')],
+      'vEthernet (Default Switch)': [v4('172.20.0.1')],
+    };
+    expect(vpnInterfaces(windows)).toEqual(['Surfshark WireGuard']);
+  });
+
+  it('finds none on a plain network', () => {
+    expect(
+      vpnInterfaces({ en0: [v4('192.168.1.215')], utun1: [v6('fe80::2')], lo0: [v4('127.0.0.1', true)] }),
+    ).toEqual([]);
+  });
+
+  it('lists the addresses a phone can type, without loopback and tunnels', () => {
+    expect(
+      lanAddresses({
+        lo0: [v4('127.0.0.1', true)],
+        en0: [v4('192.168.1.215'), v6('fe80::3')],
+        utun18: [v4('10.14.0.2')],
+        wg0: [v4('10.8.0.2')],
+      }),
+    ).toEqual(['192.168.1.215']);
   });
 });

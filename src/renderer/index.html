@@ -163,7 +163,30 @@
           <button type="button" id="phone-cancel" hidden>Cancel</button>
         </div>
 
-        <h3>Phones on this network</h3>
+        <div class="heading-row">
+          <h3>Phones on this network</h3>
+          <details class="info">
+            <summary title="When the phone cannot connect" aria-label="When the phone cannot connect">
+              ⓘ
+            </summary>
+            <div>
+              <p>
+                The phone and this computer have to be on the same network, and the network has to let them
+                talk to each other.
+              </p>
+              <p>
+                <strong>A VPN usually stops it.</strong> The phone still finds this computer, but the answers
+                go into the VPN's tunnel and never reach the phone. Switch the VPN off on this computer and on
+                the phone while they sync, or allow access to the local network in the VPN's settings (some
+                call it split tunnelling or "bypass").
+              </p>
+              <p>
+                Guest Wi-Fi and networks that keep devices apart block it too. Sync through Nextcloud or
+                Dropbox, below, works on any network.
+              </p>
+            </div>
+          </details>
+        </div>
         <label id="lan-switch"
           ><input id="lan-enabled" type="checkbox" /> Let paired phones fetch prepared documents over
           Wi-Fi</label
@@ -181,6 +204,7 @@
           </div>
           <ul id="lan-phones"></ul>
         </div>
+        <p id="lan-vpn" class="warning" role="status" hidden></p>
         <p id="lan-error" class="error" role="status"></p>
 
         <h3>Sync between devices</h3>
