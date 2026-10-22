@@ -17,6 +17,7 @@ How we work is in [docs/WORKFLOW.md](docs/WORKFLOW.md). What is built and what i
 | `npm run dev`                  | Starts the app with hot reload.                                                                                                                                     |
 | `npm run models`               | Downloads the recommended speech models into `models/`.                                                                                                             |
 | `npm run gpu-voice`            | Sets up the optional XTTS-v2 GPU voice (Python env, 7 GB).                                                                                                          |
+| `npm run dist:mac`             | Builds the Mac's `.dmg` (Apple Silicon, ad-hoc signed; ADR 9).                                                                                                      |
 | `npm run fixtures`             | Regenerates `tests/fixtures/sample.pdf`. The committed copy was made on Windows; a Mac breaks its lines differently, and the phone's golden files need these bytes. |
 
 Inside VS Code's Claude extension `ELECTRON_RUN_AS_NODE=1` is set, which makes Electron start as

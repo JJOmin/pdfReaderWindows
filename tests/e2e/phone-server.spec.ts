@@ -155,6 +155,8 @@ test('pairing needs the user to accept, while the dialog is open', async () => {
   token = (JSON.parse(answer.body.toString()) as { token: string }).token;
   expect(token).toMatch(/^[0-9a-f]{64}$/u);
   await expect(page.locator('#lan-phones li')).toContainText('Test phone');
+  // A paired phone and a prepared document: the sync button says everything is there.
+  await expect(page.locator('#open-phone')).toHaveAttribute('data-state', 'done');
 
   await page.keyboard.press('Escape');
   await expect(page.locator('#phone')).toBeHidden();

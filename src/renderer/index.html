@@ -54,12 +54,16 @@
         Reading view
       </button>
       <button id="open-voices" data-overflow="7">Voices</button>
-      <button id="open-phone" data-overflow="6">Phone</button>
-      <svg id="phone-syncing" hidden viewBox="0 0 24 24" aria-label="Preparing for the phone" role="img">
-        <path
-          d="M12 4a8 8 0 0 1 7.4 5H16v2h7V4h-2v3.1A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8zm8 8a8 8 0 0 1-15.4 3H8v-2H1v7h2v-3.1A10 10 0 0 0 22 12h-2z"
-        />
-      </svg>
+      <button id="open-phone" data-overflow="6" data-state="off" title="Sync" aria-label="Sync">
+        <svg class="sync-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 4a8 8 0 0 1 7.4 5H16v2h7V4h-2v3.1A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8zm8 8a8 8 0 0 1-15.4 3H8v-2H1v7h2v-3.1A10 10 0 0 0 22 12h-2z"
+          />
+          <line class="sync-off" x1="3" y1="3" x2="21" y2="21" />
+        </svg>
+        <span class="sync-dot" aria-hidden="true"></span>
+        <span class="menu-label">Sync</span>
+      </button>
       <button id="toggle-sidebar" data-overflow="1" aria-pressed="true">Notes</button>
       <button id="more" hidden aria-haspopup="true" aria-expanded="false" title="More" aria-label="More">
         ⋯

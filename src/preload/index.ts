@@ -40,6 +40,10 @@ const api: Api = {
   onOpened: (listener) => {
     ipcRenderer.on('pdf:opened', (_event, opened: OpenedPdf) => listener(opened));
   },
+  syncState: () => ipcRenderer.invoke('sync:state'),
+  onSyncChanged: (listener) => {
+    ipcRenderer.on('sync:changed', () => listener());
+  },
   onNotesChanged: (listener) => {
     ipcRenderer.on('notes:changed', (_event, notes: unknown) => listener(notes as NotesFile));
   },

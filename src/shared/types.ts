@@ -1,3 +1,4 @@
+import type { SyncFacts } from './sync-state.ts';
 import type { PreparedSentence } from './phone-library.ts';
 import type { Backend } from './sync-config.ts';
 
@@ -279,6 +280,10 @@ export interface Api {
   phoneAnswer(accept: boolean): Promise<void>;
   /** A PDF opened from outside the window, from Finder or the Mac's File menu: show it. */
   onOpened(listener: (opened: OpenedPdf) => void): void;
+  /** What the sync button shows, apart from a document being prepared in the window. */
+  syncState(): Promise<SyncFacts>;
+  /** Something the sync button shows may have changed: ask `syncState` again. */
+  onSyncChanged(listener: () => void): void;
   /** A phone's marks were merged into the open document's notes: show these. */
   onNotesChanged(listener: (notes: NotesFile) => void): void;
 }

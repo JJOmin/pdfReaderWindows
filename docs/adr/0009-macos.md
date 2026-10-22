@@ -155,8 +155,25 @@ the Ryzen 7 3700X.
   not ask for Local Network access for Electron's own binary. The packaged app still declares
   `NSLocalNetworkUsageDescription` (MAC5), because a signed app of its own may be asked.
 
+## Packaging (MAC5, 2026-10-22)
+
+- `npm run dist:mac` builds `dist/PDF-Reader-<version>-arm64.dmg`: 851 MB, of which the models
+  are nearly all. Installed, the app is 1.2 GB.
+- **Signed with Apple's `codesign`, not by electron-builder.** Its signer (`@electron/osx-sign`)
+  reads every file in the app to decide which are binaries, and its check crashed on an ONNX model
+  ("Invalid array length" in `isbinaryfile`). Its `signIgnore` is applied only after that check,
+  so it does not help. `identity: null` turns its signing off, and `afterPack` signs ad hoc: the
+  addon's `.dylib` and `.node` files one by one, since `--deep` does not reach loose files in
+  Resources, then the app. `codesign --verify --deep --strict` passes.
+- The app declares PDFs with the rank "Alternate": Finder lists it under Open With, and Preview
+  stays the default.
+- `spctl` rejects the app, as it rejects every app that is not notarised. A copy made on this Mac
+  has no quarantine flag; a downloaded one needs "Open Anyway" once (the release notes say how).
+
 ## Not verified
 
+- The first start from Finder, and what Gatekeeper shows for it. Started directly, the installed
+  app reads aloud from its bundled models.
 - The speeds without Low Power Mode, which should be faster.
 - Sync through Nextcloud or Dropbox from the Mac.
 - That the multicast announcement reaches the phone from the Mac on the owner's Wi-Fi, and when

@@ -1,4 +1,5 @@
 import { READING_LIMITS, resolveVoice } from '../../shared/settings';
+import { syncState } from '../../shared/sync-state';
 import type { Api, OpenedPdf, PlaceOffer, Progress, RawRange, Utterance } from '../../shared/types';
 import { focusBand, scrollToCentre } from './focus';
 import { paint } from './highlights';
@@ -286,6 +287,7 @@ async function show(opened: OpenedPdf | null): Promise<void> {
   $('#title').title = opened.name;
   $('#empty').hidden = true;
   fitToolbar();
+  void showSync();
   notes.load(opened.name, opened.notes);
   $<HTMLInputElement>('#search').value = '';
   void search.find('');
@@ -529,8 +531,35 @@ const phoneStatus = (message: string, error = false): void => {
 const showPreparing = (): void => {
   $<HTMLButtonElement>('#phone-add').disabled = preparing !== undefined || pdf.pageCount === 0;
   $('#phone-cancel').hidden = preparing === undefined;
-  $('#phone-syncing').toggleAttribute('hidden', preparing === undefined);
+  void showSync();
 };
+
+/** The sync button's state; the main process knows all of it but a document being prepared here. */
+let syncAsked = 0;
+async function showSync(): Promise<void> {
+  const asked = ++syncAsked;
+  const facts = await api.syncState();
+  // An older answer must not overwrite a newer one.
+  if (asked !== syncAsked) return;
+  const state = syncState({ ...facts, busy: facts.busy || preparing !== undefined });
+  const title = {
+    off: 'Sync is not set up: pair a phone or sign in to Nextcloud or Dropbox',
+    pending:
+      facts.document && !facts.prepared
+        ? 'Not synced: this document is not prepared for your phone yet'
+        : facts.failed
+          ? 'Not synced: the last sync failed'
+          : 'Not synced: changes are not yet sent to Nextcloud or Dropbox',
+    syncing: preparing ? 'Syncing: preparing this document for your phone' : 'Syncing',
+    done: 'Synced',
+  }[state];
+  const button = $('#open-phone');
+  button.dataset.state = state;
+  button.title = title;
+  button.setAttribute('aria-label', title);
+}
+api.onSyncChanged(() => void showSync());
+void showSync();
 const phoneSync = setUpSync(api, phoneStatus);
 setUpPhones(api);
 $('#open-phone').addEventListener('click', () => {

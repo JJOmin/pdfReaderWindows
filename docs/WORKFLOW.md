@@ -102,6 +102,9 @@ The app runs on Apple Silicon Macs too (ADR 9). On a fresh Mac:
 3. `npm run models` fetches the recommended speech models into `models/`. They are not in git.
 4. `npm run check` must pass.
 
+`npm run dist:mac` builds the `.dmg` for Apple Silicon (ADR 9), `npm run icon` renders
+`build/icon.svg` into the icon both installers use.
+
 The GPU voice (`npm run gpu-voice`) is Windows-only: it needs an NVIDIA GPU. The Flutter app's
 own setup on the Mac is in its `CLAUDE.md`.
 

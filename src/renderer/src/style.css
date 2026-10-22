@@ -427,15 +427,62 @@ dialog p {
   flex: 1;
 }
 
-#phone-syncing {
+/*
+ * The sync button: off (crossed out), pending (orange dot), syncing (turning) and done (green
+ * dot). shared/sync-state.ts decides which.
+ */
+#open-phone {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.sync-icon {
   width: 18px;
   height: 18px;
   fill: currentColor;
+}
+
+.sync-off {
+  display: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+}
+
+#open-phone[data-state='off'] .sync-icon {
+  opacity: 0.55;
+}
+
+#open-phone[data-state='off'] .sync-off {
+  display: inline;
+}
+
+#open-phone[data-state='syncing'] .sync-icon {
+  color: var(--accent);
   animation: spin 1.2s linear infinite;
 }
 
-#phone-syncing[hidden] {
+.sync-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
   display: none;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--panel);
+  border-radius: 50%;
+}
+
+#open-phone[data-state='pending'] .sync-dot {
+  display: block;
+  background: #f08c00;
+}
+
+#open-phone[data-state='done'] .sync-dot {
+  display: block;
+  background: #2e9e3a;
 }
 
 @keyframes spin {
@@ -445,7 +492,7 @@ dialog p {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #phone-syncing {
+  #open-phone[data-state='syncing'] .sync-icon {
     animation: none;
   }
 }

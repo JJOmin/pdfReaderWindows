@@ -51,12 +51,13 @@ test('Add this document writes the phone library', async () => {
   await expect(page.locator('#page-info')).toHaveText('1 / 2');
   await page.click('#open-phone');
   await page.click('#phone-add');
-  // The dialog closes; the job shows at the bottom of the window and beside the Phone button.
+  // The dialog closes; the job shows at the bottom of the window and on the sync button.
   await expect(page.locator('#phone')).not.toBeVisible();
-  await expect(page.locator('#phone-syncing')).toBeVisible();
+  await expect(page.locator('#open-phone')).toHaveAttribute('data-state', 'syncing');
   await expect(page.locator('#phone-progress')).toContainText('Phone: preparing sample.pdf');
   await expect(page.locator('#phone-progress')).toContainText('sample.pdf is ready', { timeout: 170_000 });
-  await expect(page.locator('#phone-syncing')).toBeHidden();
+  // Nothing to sync with yet: no phone is paired and no store is signed in.
+  await expect(page.locator('#open-phone')).toHaveAttribute('data-state', 'off');
   await page.click('#open-phone');
   await expect(page.locator('#phone-add')).toBeEnabled();
   await expect(page.locator('#phone-cancel')).toBeHidden();

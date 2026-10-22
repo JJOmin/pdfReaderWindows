@@ -15,6 +15,7 @@ import {
   type ProgressStore,
 } from '../shared/settings';
 import { placeOffer, type DeviceState } from '../shared/phone-library';
+import type { SyncFacts } from '../shared/sync-state';
 import type { NotesFile, OpenedPdf, PlaceOffer, Settings, SynthRequest } from '../shared/types';
 import { annotate, parseMarks } from './annotate';
 import { PhoneLibrary, sha256, type LibraryDocument } from './library';
@@ -64,6 +65,15 @@ const secretBox = {
   decrypt: (text: string): string => safeStorage.decryptString(Buffer.from(text, 'base64')),
 };
 const library = new PhoneLibrary(libraryRoot);
+/** The store sync as the sync button shows it; the rest of its facts are read when asked. */
+const storeSync = { busy: false, changedAt: 0, syncedAt: 0, failed: false };
+/** Tells the window that the sync button may have to change. */
+const syncChanged = (): void => BrowserWindow.getAllWindows()[0]?.webContents.send('sync:changed');
+/** Something the store should get: new or changed marks, or a newly prepared document. */
+const changedForStore = (): void => {
+  storeSync.changedAt = Date.now();
+  syncChanged();
+};
 const sync = new SyncManager({
   configPath: join(app.getPath('userData'), 'sync.json'),
   libraryRoot,
@@ -95,10 +105,14 @@ const phones = new PhoneServer({
       pairAnswer = resolve;
       BrowserWindow.getAllWindows()[0]?.webContents.send('phone:pair', name);
     }),
-  onChange: () => BrowserWindow.getAllWindows()[0]?.webContents.send('phone:changed'),
+  onChange: () => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send('phone:changed');
+    syncChanged();
+  },
   // A phone's marks reach the open document at once; for another one they wait in the library
   // until it is opened.
   onNotes: (docId, merged) => {
+    changedForStore();
     if (currentDoc?.docId !== docId || !currentPdf) return;
     void writeFile(`${currentPdf}.notes.json`, JSON.stringify(merged, null, 2));
     BrowserWindow.getAllWindows()[0]?.webContents.send('notes:changed', merged);
@@ -301,6 +315,7 @@ function registerIpc(): void {
     await writeFile(`${currentPdf}.notes.json`, JSON.stringify(stamped, null, 2));
     if (currentDoc && (await library.isPrepared(currentDoc.docId))) {
       await library.mergeNotesInto(currentDoc.docId, stamped);
+      changedForStore();
     }
   });
   ipcMain.handle('notes:export', async (_event, markdown: unknown) => {
@@ -339,21 +354,51 @@ function registerIpc(): void {
       if (page === pages) {
         const merged = await mirrorNotes(doc, await readNotesFile(doc.path));
         if (merged) BrowserWindow.getAllWindows()[0]?.webContents.send('notes:changed', merged);
+        changedForStore();
       }
     },
   );
   ipcMain.handle('sync:status', () => sync.getStatus());
+  ipcMain.handle('sync:state', async (): Promise<SyncFacts> => {
+    const [status, lan] = await Promise.all([sync.getStatus(), phones.status()]);
+    return {
+      store: status.backend !== 'none',
+      phones: lan.enabled && lan.phones.length > 0,
+      busy: storeSync.busy,
+      document: currentDoc !== undefined,
+      prepared: currentDoc !== undefined && (await library.isPrepared(currentDoc.docId)),
+      changedAt: storeSync.changedAt,
+      syncedAt: storeSync.syncedAt,
+      failed: storeSync.failed,
+    };
+  });
   ipcMain.handle('sync:connect', (_event, backend: unknown, server: unknown) =>
-    sync.connect(backend, server),
+    sync.connect(backend, server).finally(syncChanged),
   );
   ipcMain.handle('sync:cancel', () => sync.cancel());
-  ipcMain.handle('sync:disconnect', () => sync.disconnect());
+  ipcMain.handle('sync:disconnect', () => sync.disconnect().finally(syncChanged));
   ipcMain.handle('sync:key', () => sync.key());
   ipcMain.handle('sync:set-key', (_event, key: unknown) => sync.setKey(key));
-  ipcMain.handle('sync:run', () => sync.run());
+  ipcMain.handle('sync:run', async () => {
+    const started = Date.now();
+    storeSync.busy = true;
+    syncChanged();
+    try {
+      const report = await sync.run();
+      storeSync.syncedAt = started;
+      storeSync.failed = false;
+      return report;
+    } catch (error) {
+      storeSync.failed = true;
+      throw error;
+    } finally {
+      storeSync.busy = false;
+      syncChanged();
+    }
+  });
   ipcMain.handle('phone:status', () => phones.status());
-  ipcMain.handle('phone:enable', (_event, on: unknown) => phones.setEnabled(on));
-  ipcMain.handle('phone:remove', (_event, device: unknown) => phones.remove(device));
+  ipcMain.handle('phone:enable', (_event, on: unknown) => phones.setEnabled(on).finally(syncChanged));
+  ipcMain.handle('phone:remove', (_event, device: unknown) => phones.remove(device).finally(syncChanged));
   ipcMain.handle('phone:pairing', (_event, open: unknown) => {
     phones.setPairing(open);
     // A question nobody can see any more is a no.
