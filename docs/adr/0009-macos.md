@@ -172,8 +172,8 @@ the Ryzen 7 3700X.
 
 ## Not verified
 
-- The first start from Finder, and what Gatekeeper shows for it. Started directly, the installed
-  app reads aloud from its bundled models.
+- What Gatekeeper shows for a downloaded copy. A copy built on this Mac opened from Finder's
+  Open With (the owner, 2026-10-22).
 - The speeds without Low Power Mode, which should be faster.
 - Sync through Nextcloud or Dropbox from the Mac.
 - That the multicast announcement reaches the phone from the Mac on the owner's Wi-Fi, and when
