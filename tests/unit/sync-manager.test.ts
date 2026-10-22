@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncManager } from '../../src/main/sync/manager';
 import {
   buildPageIndex,
@@ -11,6 +11,7 @@ import {
   type PreparedSentence,
 } from '../../src/shared/phone-library';
 import { formatSyncKey, newSyncKey } from '../../src/shared/sync-store';
+import { AutoSync } from '../../src/shared/auto-sync';
 import { fakeNextcloud, type FakeNextcloud } from './fake-servers';
 
 const sha256 = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
@@ -79,7 +80,7 @@ afterEach(async () => {
 
 describe('SyncManager', () => {
   it('starts with nothing connected', async () => {
-    expect(await manager().getStatus()).toEqual({ backend: 'none', account: '' });
+    expect(await manager().getStatus()).toEqual({ backend: 'none', account: '', auto: true });
     await expect(manager().run()).rejects.toThrow('Sign in');
   });
 
@@ -119,6 +120,52 @@ describe('SyncManager', () => {
     await sync.run();
     await sync.setKey(formatSyncKey(newSyncKey()));
     expect((await sync.run()).uploaded).toBe(1);
+  });
+
+  it('keeps the switch for syncing on its own, and the documents the user stopped', async () => {
+    const sync = manager(() => nextcloud.approve());
+    expect((await sync.setAuto(false)).auto).toBe(false);
+    expect((await manager().getStatus()).auto).toBe(false);
+    await expect(sync.setAuto('yes')).rejects.toThrow('on or off');
+    expect(await sync.setStopped(DOC, true)).toEqual([DOC]);
+    expect(await manager().stopped()).toEqual([DOC]);
+    expect(await sync.setStopped(DOC, false)).toEqual([]);
+    await expect(sync.setStopped('../x', true)).rejects.toThrow();
+  });
+
+  it('does not send a document the user stopped syncing', async () => {
+    const sync = manager(() => nextcloud.approve());
+    await sync.connect('nextcloud', nextcloud.url);
+    await sync.setStopped(DOC, true);
+    expect(await sync.run()).toEqual({ documents: 0, uploaded: 0, unreadable: 0 });
+    expect([...nextcloud.files.keys()].some((p) => p.includes(DOC))).toBe(false);
+  });
+
+  it('puts a mark in the store 10 seconds after it was made, without a click', async () => {
+    const sync = manager(() => nextcloud.approve());
+    await sync.connect('nextcloud', nextcloud.url);
+    await sync.run();
+    const notes = `PDF Reader/${DOC}/notes.json`;
+    expect(nextcloud.files.has(notes)).toBe(false);
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'Date'] });
+    try {
+      const auto = new AutoSync({ run: () => sync.run(), now: Date.now });
+      auto.start();
+      await vi.advanceTimersByTimeAsync(0);
+      await writeFile(
+        join(dir, 'phone-library', DOC, 'notes.json'),
+        JSON.stringify({ version: 1, notes: 'a mark', notesUpdated: 5, annotations: [] }),
+      );
+      auto.changed('content');
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(nextcloud.files.has(notes)).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(nextcloud.files.has(notes)).toBe(true), { timeout: 5000 });
+      auto.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('knows no service but Nextcloud', async () => {

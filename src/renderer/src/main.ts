@@ -594,7 +594,10 @@ $('#phone-add').addEventListener('click', () => {
     .then(async ({ cancelled, rendered }) => {
       phoneStatus(cancelled ? 'Phone: cancelled.' : `Phone: ${name} is ready, ${rendered} sentences.`);
       // A prepared document goes to the store at once, when one is connected.
-      if (!cancelled) await phoneSync.run();
+      if (!cancelled) {
+        await phoneSync.documents();
+        await phoneSync.run();
+      }
       phoneProgressTimer = setTimeout(() => ($('#phone-progress').hidden = true), PHONE_RESULT_MS);
     })
     .catch((error: unknown) =>

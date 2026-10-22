@@ -506,7 +506,8 @@ dialog p {
 }
 
 .sync-row[hidden],
-#sync-connect[hidden] {
+#sync-connect[hidden],
+#sync-documents-box[hidden] {
   display: none;
 }
 
@@ -765,11 +766,13 @@ dialog p {
   flex: 1;
 }
 
-#lan-phones {
+#lan-phones,
+#sync-documents {
   padding-left: 18px;
 }
 
-#lan-phones li {
+#lan-phones li,
+#sync-documents li {
   display: flex;
   gap: 8px;
   align-items: center;

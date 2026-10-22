@@ -68,7 +68,7 @@ export class SyncManager {
 
   private status(config: SyncConfig): SyncStatus {
     const account = config.backend === 'nextcloud' ? `${config.user} at ${new URL(config.server).host}` : '';
-    return { backend: config.backend, account };
+    return { backend: config.backend, account, auto: config.auto };
   }
 
   private device: Promise<string> | undefined;
@@ -110,6 +110,32 @@ export class SyncManager {
     } finally {
       if (this.signingIn === attempt) this.signingIn = undefined;
     }
+  }
+
+  /** Switches syncing on its own on or off. It stays so across restarts. */
+  async setAuto(on: unknown): Promise<SyncStatus> {
+    if (typeof on !== 'boolean') throw new Error('Expected on or off');
+    const { config, secrets } = await this.load();
+    config.auto = on;
+    await this.save(config, secrets);
+    return this.status(config);
+  }
+
+  /** The documents the user stopped syncing. */
+  async stopped(): Promise<string[]> {
+    return (await this.load()).config.stopped;
+  }
+
+  /** Stops or resumes syncing one document. It stays prepared; only the store does not get it. */
+  async setStopped(docId: unknown, stop: unknown): Promise<string[]> {
+    if (typeof docId !== 'string' || !/^[0-9a-f]{64}$/u.test(docId) || typeof stop !== 'boolean') {
+      throw new Error('Expected a document and on or off');
+    }
+    const { config, secrets } = await this.load();
+    const others = config.stopped.filter((id) => id !== docId);
+    config.stopped = stop ? [...others, docId] : others;
+    await this.save(config, secrets);
+    return config.stopped;
   }
 
   cancel(): void {
@@ -177,6 +203,7 @@ export class SyncManager {
       const report = await syncLibrary(store, key, this.options.libraryRoot, config.deviceId, {
         memo,
         full,
+        stopped: new Set(config.stopped),
         name: this.options.deviceName,
         onNotesChanged: this.options.onNotesChanged,
       });

@@ -192,6 +192,16 @@ export interface SyncStatus {
   backend: Backend;
   /** Who is signed in: `user at server`, empty when nothing is connected. */
   account: string;
+  /** Syncs on its own (ADR 10 section 3). */
+  auto: boolean;
+}
+
+/** A document in the phone library, for the list of what is synced. */
+export interface SyncedDocument {
+  docId: string;
+  name: string;
+  /** False after "Stop syncing". */
+  synced: boolean;
 }
 
 export interface SyncReport {
@@ -264,6 +274,12 @@ export interface Api {
   syncKey(): Promise<string>;
   /** Replaces the key with one from another device. Returns the key as stored. */
   syncSetKey(key: string): Promise<string>;
+  /** Switches syncing on its own on or off. */
+  syncSetAuto(on: boolean): Promise<SyncStatus>;
+  /** The prepared documents and whether each is synced. */
+  syncDocuments(): Promise<SyncedDocument[]>;
+  /** "Stop syncing" or "Sync this document" for a prepared document, without preparing it again. */
+  syncSetDocument(docId: string, synced: boolean): Promise<SyncedDocument[]>;
   /**
    * Sends the phone library to the store and fetches what the other devices changed. `full` walks
    * the whole store instead of asking the change journals (ADR 10 section 2).

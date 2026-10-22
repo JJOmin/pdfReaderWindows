@@ -295,6 +295,8 @@ export interface SyncOptions {
   name?: string;
   /** Walk the whole store instead of what the journals say changed ("Refresh everything"). */
   full?: boolean;
+  /** Documents the user stopped syncing: left out, and out of the journal. */
+  stopped?: ReadonlySet<string>;
   /** Told which documents' notes changed here, so that one that is open can show them. */
   onNotesChanged?: (docId: string) => void;
 }
@@ -310,7 +312,13 @@ export async function syncLibrary(
   key: Uint8Array,
   root: string,
   device: string,
-  { memo = newMemo(), name = '', full = false, onNotesChanged = () => undefined }: SyncOptions = {},
+  {
+    memo = newMemo(),
+    name = '',
+    full = false,
+    stopped = new Set<string>(),
+    onNotesChanged = () => undefined,
+  }: SyncOptions = {},
 ): Promise<SyncReport> {
   const report: SyncReport = { documents: 0, uploaded: 0, unreadable: 0 };
   let names: string[];
@@ -336,7 +344,7 @@ export async function syncLibrary(
     dirty = true;
   };
 
-  for (const docId of names.filter((n) => DOC_ID.test(n))) {
+  for (const docId of names.filter((n) => DOC_ID.test(n) && !stopped.has(n))) {
     const folder = join(root, docId);
     // No manifest means the document is still being prepared.
     let manifest: Manifest | null;

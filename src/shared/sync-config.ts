@@ -11,6 +11,10 @@ export interface SyncConfig {
   server: string;
   user: string;
   secrets: string;
+  /** Sync on its own (ADR 10 section 3). On unless the user switched it off. */
+  auto: boolean;
+  /** Documents the user stopped syncing: they stay prepared but are not sent to the store. */
+  stopped: string[];
 }
 
 /** The secrets, as JSON inside `SyncConfig.secrets`. */
@@ -22,6 +26,7 @@ export interface SyncSecrets {
 }
 
 const DEVICE_ID = /^[0-9a-f]{32}$/;
+const DOC_ID = /^[0-9a-f]{64}$/;
 
 const text = (value: unknown, max: number): string =>
   typeof value === 'string' && value.length <= max ? value : '';
@@ -37,6 +42,10 @@ export function parseSyncConfig(value: unknown, newDeviceId: () => string): Sync
     server: text(input.server, 2048),
     user: text(input.user, 256),
     secrets: text(input.secrets, 16_384),
+    auto: input.auto !== false,
+    stopped: Array.isArray(input.stopped)
+      ? input.stopped.filter((id): id is string => typeof id === 'string' && DOC_ID.test(id))
+      : [],
   };
 }
 

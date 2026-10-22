@@ -444,6 +444,16 @@ describe('change journals', () => {
     store.forget();
   });
 
+  it('leaves out a document the user stopped syncing, and takes it out of the journal', async () => {
+    const report = await syncLibrary(store, key, root, DESKTOP, { memo, stopped: new Set([DOC]) });
+    expect(report.documents).toBe(0);
+    expect((await readJournal(DESKTOP))?.docs).toEqual({});
+    store.forget();
+    await sync();
+    expect(store.puts).toEqual([remotePath.journal(DESKTOP)]);
+    expect((await readJournal(DESKTOP))?.docs[DOC]).toBeDefined();
+  });
+
   it('writes this computer’s journal after the first sync, with the manifest’s time', async () => {
     const journal = await readJournal(DESKTOP);
     expect(journal?.name).toBe('Mac');

@@ -158,12 +158,12 @@
       <form method="dialog">
         <h2>Phone sync</h2>
         <p>
-          Prepares the open document for the phone: every sentence is spoken with the chosen voices and stored
-          on this computer, with the PDF.
+          Syncs the open document with your phone: every sentence is spoken with the chosen voices and stored
+          on this computer, with the PDF. Then it is sent to your Nextcloud and over Wi-Fi.
         </p>
         <p id="phone-status" role="status"></p>
         <div id="phone-actions">
-          <button type="button" id="phone-add">Add this document</button>
+          <button type="button" id="phone-add">Sync this document</button>
           <button type="button" id="phone-cancel" hidden>Cancel</button>
         </div>
 
@@ -237,6 +237,14 @@
             Refresh everything
           </button>
           <button type="button" id="sync-disconnect">Sign out</button>
+        </div>
+        <label id="sync-auto-label"
+          ><input id="sync-auto" type="checkbox" /> Sync automatically: when something changes here, and every
+          2 minutes for changes on other devices</label
+        >
+        <div id="sync-documents-box" hidden>
+          <h4>Synced documents</h4>
+          <ul id="sync-documents"></ul>
         </div>
         <details id="sync-key-box">
           <summary>Sync key</summary>

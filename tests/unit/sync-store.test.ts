@@ -161,7 +161,16 @@ describe('sync config', () => {
       server: '',
       user: '',
       secrets: '',
+      auto: true,
+      stopped: [],
     });
+  });
+
+  it('syncs on its own unless switched off, and keeps the documents the user stopped', () => {
+    expect(parseSyncConfig({ auto: false }, id).auto).toBe(false);
+    expect(parseSyncConfig({ auto: 'no' }, id).auto).toBe(true);
+    const stopped = parseSyncConfig({ stopped: ['a'.repeat(64), 'short', 5] }, id).stopped;
+    expect(stopped).toEqual(['a'.repeat(64)]);
   });
 
   it('keeps what is valid and drops what is not', () => {
@@ -175,6 +184,8 @@ describe('sync config', () => {
       server: '',
       user: 'alice',
       secrets: 'xyz',
+      auto: true,
+      stopped: [],
     });
     // Dropbox was removed (ADR 10): a file written while it was chosen reads as signed out.
     expect(parseSyncConfig({ deviceId: 'a'.repeat(32), backend: 'dropbox' }, id)).toMatchObject({

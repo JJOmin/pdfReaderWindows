@@ -131,6 +131,28 @@ export class PhoneLibrary {
     }
   }
 
+  /** The prepared documents, by name. */
+  async list(): Promise<{ docId: string; name: string }[]> {
+    let names: string[];
+    try {
+      names = await readdir(this.root);
+    } catch {
+      return [];
+    }
+    const out: { docId: string; name: string }[] = [];
+    for (const docId of names) {
+      try {
+        const manifest = parseManifest(
+          JSON.parse(await readFile(join(this.root, docId, 'manifest.json'), 'utf8')),
+        );
+        if (manifest?.docId === docId) out.push({ docId, name: manifest.name });
+      } catch {
+        // Not a whole document: still being prepared, or not ours.
+      }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   /** Every device's place in a prepared document, each from the file named after it. */
   async states(docId: string): Promise<DeviceState[]> {
     const dir = join(this.root, docId, 'state');

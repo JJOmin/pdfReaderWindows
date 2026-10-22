@@ -14,9 +14,18 @@ import {
   rememberProgress,
   type ProgressStore,
 } from '../shared/settings';
+import { AutoSync } from '../shared/auto-sync';
 import { placeOffer, type DeviceState } from '../shared/phone-library';
 import type { SyncFacts } from '../shared/sync-state';
-import type { NotesFile, OpenedPdf, PlaceOffer, Settings, SynthRequest } from '../shared/types';
+import type {
+  NotesFile,
+  OpenedPdf,
+  PlaceOffer,
+  Settings,
+  SyncedDocument,
+  SyncReport,
+  SynthRequest,
+} from '../shared/types';
 import { annotate, parseMarks } from './annotate';
 import { PhoneLibrary, sha256, type LibraryDocument } from './library';
 import { PhoneServer } from './phone-server';
@@ -73,7 +82,16 @@ const syncChanged = (): void => BrowserWindow.getAllWindows()[0]?.webContents.se
 const changedForStore = (): void => {
   storeSync.changedAt = Date.now();
   syncChanged();
+  auto.changed('content');
 };
+/** Syncs with the store by itself (ADR 10 section 3); `sync` is made below, and used only later. */
+const auto = new AutoSync({
+  run: async () => {
+    if (storeSync.busy || (await sync.getStatus()).backend === 'none') return;
+    await runStoreSync(false);
+  },
+  now: Date.now,
+});
 const sync = new SyncManager({
   configPath: join(app.getPath('userData'), 'sync.json'),
   memoPath: join(app.getPath('userData'), 'sync-memo.json'),
@@ -261,6 +279,31 @@ async function chooseAndOpen(): Promise<void> {
   if (filePaths[0]) openFile(filePaths[0]);
 }
 
+/** One sync with the store, shown by the sync button. Used by the button and by the timer. */
+async function runStoreSync(full: boolean): Promise<SyncReport> {
+  const started = Date.now();
+  storeSync.busy = true;
+  syncChanged();
+  try {
+    const report = await sync.run(full);
+    storeSync.syncedAt = started;
+    storeSync.failed = false;
+    return report;
+  } catch (error) {
+    storeSync.failed = true;
+    throw error;
+  } finally {
+    storeSync.busy = false;
+    syncChanged();
+  }
+}
+
+/** The prepared documents, each with whether the user still syncs it. */
+async function syncedDocuments(): Promise<SyncedDocument[]> {
+  const stopped = new Set(await sync.stopped());
+  return (await library.list()).map((d) => ({ ...d, synced: !stopped.has(d.docId) }));
+}
+
 function registerIpc(): void {
   ipcMain.handle('pdf:open', async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)!;
@@ -303,8 +346,10 @@ function registerIpc(): void {
         offset: place.offset,
         sentence: place.sentence && key ? { ...place.sentence, key } : null,
       };
-      if (doc === currentDoc)
+      if (doc === currentDoc) {
         pendingState = { path: library.statePath(doc.docId, device), json: JSON.stringify(state) };
+        auto.changed('place');
+      }
     }
     scheduleProgressWrite();
   });
@@ -381,23 +426,17 @@ function registerIpc(): void {
   ipcMain.handle('sync:disconnect', () => sync.disconnect().finally(syncChanged));
   ipcMain.handle('sync:key', () => sync.key());
   ipcMain.handle('sync:set-key', (_event, key: unknown) => sync.setKey(key));
-  ipcMain.handle('sync:run', async (_event, full: unknown) => {
-    const started = Date.now();
-    storeSync.busy = true;
-    syncChanged();
-    try {
-      const report = await sync.run(full === true);
-      storeSync.syncedAt = started;
-      storeSync.failed = false;
-      return report;
-    } catch (error) {
-      storeSync.failed = true;
-      throw error;
-    } finally {
-      storeSync.busy = false;
-      syncChanged();
-    }
+  ipcMain.handle('sync:set-auto', async (_event, on: unknown) => {
+    const status = await sync.setAuto(on);
+    auto.setEnabled(status.auto);
+    return status;
   });
+  ipcMain.handle('sync:documents', () => syncedDocuments());
+  ipcMain.handle('sync:set-document', async (_event, docId: unknown, synced: unknown) => {
+    await sync.setStopped(docId, synced === false);
+    return syncedDocuments();
+  });
+  ipcMain.handle('sync:run', (_event, full: unknown) => runStoreSync(full === true));
   ipcMain.handle('phone:status', () => phones.status());
   ipcMain.handle('phone:enable', (_event, on: unknown) => phones.setEnabled(on).finally(syncChanged));
   ipcMain.handle('phone:remove', (_event, device: unknown) => phones.remove(device).finally(syncChanged));
@@ -512,6 +551,10 @@ void app.whenReady().then(() => {
   if (process.platform === 'darwin') Menu.setApplicationMenu(macMenu());
   createWindow();
   void phones.start();
+  void sync.getStatus().then((status) => {
+    auto.setEnabled(status.auto);
+    auto.start();
+  });
 });
 
 // A Mac app keeps running without a window (ADR 9): the Dock icon opens one again.
@@ -525,6 +568,17 @@ app.on('activate', () => {
 app.on('open-file', (event, path) => {
   event.preventDefault();
   openFile(path);
+});
+// Whatever the store has not got yet is sent before the app goes, but never for more than 8 seconds.
+let flushedOnQuit = false;
+app.on('before-quit', (event) => {
+  if (flushedOnQuit) return;
+  flushedOnQuit = true;
+  event.preventDefault();
+  writeProgress();
+  void Promise.race([auto.flush(), new Promise((resolve) => setTimeout(resolve, 8000))]).finally(() =>
+    app.quit(),
+  );
 });
 // The GPU voice's helper holds GPU memory until it is told to go.
 app.on('will-quit', () => {
