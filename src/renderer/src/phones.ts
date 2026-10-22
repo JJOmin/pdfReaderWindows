@@ -1,7 +1,28 @@
+import qrcode from 'qrcode-generator';
 import type { Api, PhoneServerStatus } from '../../shared/types';
 
 const $ = <T extends HTMLElement>(selector: string): T => document.querySelector<T>(selector)!;
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Draws the QR code on the canvas: dark modules on a white square with the quiet zone the scanner needs. */
+function drawQr(canvas: HTMLCanvasElement, text: string): void {
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  const modules = qr.getModuleCount();
+  const quiet = 4;
+  const scale = 4;
+  canvas.width = canvas.height = (modules + quiet * 2) * scale;
+  const context = canvas.getContext('2d')!;
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#000';
+  for (let row = 0; row < modules; row++) {
+    for (let col = 0; col < modules; col++) {
+      if (qr.isDark(row, col)) context.fillRect((col + quiet) * scale, (row + quiet) * scale, scale, scale);
+    }
+  }
+}
 
 /**
  * The "Phones on this network" part of the Phone dialog (ADR 7). The main process runs the
@@ -15,6 +36,11 @@ export function setUpPhones(api: Api): void {
     $('#lan-on').hidden = !status.running;
     $('#lan-error').textContent = status.enabled && !status.running ? status.error : '';
     $('#lan-code').textContent = status.code;
+    const qr = $<HTMLCanvasElement>('#lan-qr');
+    qr.hidden = status.pairingUrl === '';
+    // The e2e test reads the secret from here, as a phone would from the picture.
+    qr.dataset.url = status.pairingUrl;
+    if (status.pairingUrl !== '') drawQr(qr, status.pairingUrl);
     $('#lan-addresses').textContent =
       status.addresses.length > 0
         ? `If the phone does not list it, type ${status.addresses.map((a) => `${a}:${status.port}`).join(' or ')}`
@@ -44,7 +70,8 @@ export function setUpPhones(api: Api): void {
 
   $('#open-phone').addEventListener('click', () => {
     refresh();
-    void api.phonePairing(true);
+    // The QR code's secret is made when pairing opens, so the picture is asked for again.
+    void api.phonePairing(true).then(refresh, fail);
   });
   dialog.addEventListener('close', () => {
     $('#lan-ask').hidden = true;

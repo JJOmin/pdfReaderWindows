@@ -6,7 +6,7 @@ import { request } from 'node:https';
 import type { TLSSocket } from 'node:tls';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { codeMatches, parseAnnouncement } from '../../src/shared/pairing.ts';
+import { codeMatches, parseAnnouncement, parsePairingUrl } from '../../src/shared/pairing.ts';
 
 // Step S5 of ADR 7: a Node client stands in for the phone. Needs the fixture and the speech
 // models, because the library it downloads is prepared first. Port 47613 must be free.
@@ -161,6 +161,54 @@ test('pairing needs the user to accept, while the dialog is open', async () => {
   await page.keyboard.press('Escape');
   await expect(page.locator('#phone')).toBeHidden();
   expect((await call('POST', '/v1/pair', { body: asking })).status).toBe(404);
+});
+
+test('a phone that read the QR code pairs without a click, once, and not after the dialog closed', async () => {
+  await page.click('#open-phone');
+  await expect(page.locator('#lan-qr')).toBeVisible();
+  const url = parsePairingUrl((await page.locator('#lan-qr').getAttribute('data-url'))!);
+  expect(url).toMatchObject({ code, name: expect.any(String) });
+  expect(url!.addresses.length).toBeGreaterThan(0);
+
+  const scanner = randomBytes(16).toString('hex');
+  const paired = await call('POST', '/v1/pair', {
+    body: { device: scanner, name: 'Scanning phone', secret: url!.secret },
+  });
+  expect(paired.status).toBe(200);
+  expect((JSON.parse(paired.body.toString()) as { token: string }).token).toMatch(/^[0-9a-f]{64}$/u);
+  await expect(page.locator('#lan-ask')).toBeHidden();
+  await expect(page.locator('#lan-phones li', { hasText: 'Scanning phone' })).toHaveCount(1);
+
+  // The secret is used up, and a made-up one never worked.
+  const again = await call('POST', '/v1/pair', {
+    body: { device: scanner, name: 'Scanning phone', secret: url!.secret },
+  });
+  expect(again.status).toBe(403);
+  const guess = await call('POST', '/v1/pair', {
+    body: { device: scanner, name: 'Scanning phone', secret: 'f'.repeat(32) },
+  });
+  expect(guess.status).toBe(403);
+  // The picture changed with it.
+  await expect
+    .poll(async () => parsePairingUrl((await page.locator('#lan-qr').getAttribute('data-url'))!)?.secret)
+    .not.toBe(url!.secret);
+
+  const fresh = parsePairingUrl((await page.locator('#lan-qr').getAttribute('data-url'))!)!;
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#phone')).toBeHidden();
+  const late = await call('POST', '/v1/pair', {
+    body: { device: scanner, name: 'Scanning phone', secret: fresh.secret },
+  });
+  expect(late.status).toBe(404);
+  await page.click('#open-phone');
+  const reopened = parsePairingUrl((await page.locator('#lan-qr').getAttribute('data-url'))!)!;
+  expect(reopened.secret).not.toBe(fresh.secret);
+  await page
+    .locator('#lan-phones li', { hasText: 'Scanning phone' })
+    .getByRole('button', { name: 'Remove' })
+    .click();
+  await expect(page.locator('#lan-phones li')).toHaveCount(1);
+  await page.keyboard.press('Escape');
 });
 
 test('a paired phone downloads the library byte for byte, and an unknown token gets nothing', async () => {

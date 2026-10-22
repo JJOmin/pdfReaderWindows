@@ -1,4 +1,11 @@
-import { createHash, generateKeyPairSync, randomBytes, sign, X509Certificate } from 'node:crypto';
+import {
+  createHash,
+  generateKeyPairSync,
+  randomBytes,
+  sign,
+  timingSafeEqual,
+  X509Certificate,
+} from 'node:crypto';
 import { createSocket, type Socket } from 'node:dgram';
 import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
@@ -11,6 +18,7 @@ import {
   announcement,
   lanAddresses,
   pairingCode,
+  pairingUrl,
   parseBearer,
   parsePairRequest,
   parseRequest,
@@ -28,6 +36,13 @@ export const ANNOUNCE_GROUP = '239.255.47.13';
 const ANNOUNCE_MS = 2000;
 /** The user has this long to answer "Pair with …?". */
 const PAIR_TIMEOUT_MS = 60_000;
+const newSecret = (): string => randomBytes(16).toString('hex');
+/** Compared without telling how many leading characters matched. */
+const sameSecret = (given: string | undefined, secret: string): boolean =>
+  secret !== '' &&
+  given !== undefined &&
+  given.length === secret.length &&
+  timingSafeEqual(Buffer.from(given), Buffer.from(secret));
 const MAX_STATE_BYTES = 4096;
 const MAX_PAIR_BYTES = 1024;
 /** A document's marks and comments: far more than anyone writes by hand. */
@@ -125,6 +140,8 @@ export class PhoneServer {
   private identity: { cert: Buffer; key: string; fingerprint: string } | undefined;
   private phones: PhonesFile | undefined;
   private pairingOpen = false;
+  /** The QR code's secret: made when the Phone dialog opens, new after each use, gone when it closes. */
+  private secret = '';
   private pairing = false;
   private error = '';
 
@@ -195,6 +212,7 @@ export class PhoneServer {
       running: this.server?.listening ?? false,
       error: this.error,
       code: identity ? pairingCode(identity.fingerprint) : '',
+      pairingUrl: this.qr(identity, lanAddresses(networkInterfaces())),
       port: this.port,
       addresses: lanAddresses(networkInterfaces()),
       vpn: vpnInterfaces(networkInterfaces()),
@@ -220,6 +238,19 @@ export class PhoneServer {
   /** The Phone dialog is open: only then are pairing requests answered. */
   setPairing(open: unknown): void {
     this.pairingOpen = open === true;
+    this.secret = this.pairingOpen ? newSecret() : '';
+  }
+
+  /** What the QR code holds, or empty while pairing is not on offer. */
+  private qr(identity: { fingerprint: string } | undefined, addresses: string[]): string {
+    if (!identity || !this.pairingOpen || !this.secret || addresses.length === 0) return '';
+    return pairingUrl({
+      name: this.options.name,
+      addresses,
+      port: this.port,
+      code: pairingCode(identity.fingerprint),
+      secret: this.secret,
+    });
   }
 
   async remove(device: unknown): Promise<PhoneServerStatus> {
@@ -437,12 +468,19 @@ export class PhoneServer {
       asked = null;
     }
     if (!asked) return empty(response, 400);
+    // A phone that read the QR code on this screen just now needs no click (ADR 10 section 5). A secret
+    // that is old or wrong is refused outright, and a good one is used up at once.
+    const known = asked.secret !== undefined;
+    if (known && !sameSecret(asked.secret, this.secret)) return empty(response, 403);
+    if (known) this.secret = newSecret();
     this.pairing = true;
     try {
-      const accepted = await Promise.race([
-        this.options.askPair(asked.name),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), PAIR_TIMEOUT_MS)),
-      ]);
+      const accepted =
+        known ||
+        (await Promise.race([
+          this.options.askPair(asked.name),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), PAIR_TIMEOUT_MS)),
+        ]));
       if (!accepted) return empty(response, 403);
       const token = randomBytes(32).toString('hex');
       const phones = await this.loadPhones();

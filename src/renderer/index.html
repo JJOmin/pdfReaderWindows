@@ -199,7 +199,12 @@
           Paired phones only, and only after you accept them here. Switch it off on networks you do not trust.
         </p>
         <div id="lan-on" hidden>
-          <p>On the phone, choose this computer and type the code <strong id="lan-code"></strong></p>
+          <p>In the phone app, open Sync and choose Scan to pair, then point the camera at this picture:</p>
+          <canvas id="lan-qr" width="1" height="1" aria-label="QR code for pairing" hidden></canvas>
+          <p>
+            Or choose this computer in the phone app and type the code <strong id="lan-code"></strong>. Only
+            someone who can see this screen can pair without typing.
+          </p>
           <p id="lan-addresses"></p>
           <div id="lan-ask" role="alertdialog" aria-labelledby="lan-ask-text" hidden>
             <span id="lan-ask-text"></span>

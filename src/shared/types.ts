@@ -222,6 +222,11 @@ export interface PhoneServerStatus {
   error: string;
   /** The code the user types on the phone, `XXXX-XXXX-XXXX`; empty while switched off. */
   code: string;
+  /**
+   * What the QR code holds while the dialog is open (ADR 10 section 5); empty otherwise. It carries a
+   * secret that proves a phone saw this screen, so it is shown, never logged or saved.
+   */
+  pairingUrl: string;
   port: number;
   /** This computer's addresses, for typing on a network that blocks multicast. */
   addresses: string[];

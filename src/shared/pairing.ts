@@ -93,15 +93,69 @@ export interface PairRequest {
   device: string;
   /** Shown in "Pair with …?" and in the list of paired phones. */
   name: string;
+  /** From the QR code on the desktop's screen: proof that the phone saw it just now (ADR 10 section 5). */
+  secret?: string;
 }
+
+const SECRET = /^[0-9a-f]{32}$/u;
 
 export function parsePairRequest(value: unknown): PairRequest | null {
   if (typeof value !== 'object' || value === null) return null;
-  const { device, name } = value as Record<string, unknown>;
+  const { device, name, secret } = value as Record<string, unknown>;
   if (typeof device !== 'string' || !DEVICE_ID.test(device) || typeof name !== 'string') return null;
   const trimmed = name.trim();
   if (trimmed === '' || trimmed.length > 64 || /\p{Cc}/u.test(trimmed)) return null;
-  return { device, name: trimmed };
+  if (secret === undefined) return { device, name: trimmed };
+  return typeof secret === 'string' && SECRET.test(secret) ? { device, name: trimmed, secret } : null;
+}
+
+/**
+ * What the QR code holds (ADR 10 section 5): the addresses, so that the phone needs no multicast; the
+ * code, which pins the certificate exactly as when it is typed; and the one-time secret.
+ */
+export function pairingUrl(parts: {
+  name: string;
+  addresses: string[];
+  port: number;
+  code: string;
+  secret: string;
+}): string {
+  const addr = parts.addresses.map((a) => `${a}:${parts.port}`).join(',');
+  return `pdfreader://pair?v=1&name=${encodeURIComponent(parts.name)}&addr=${addr}&code=${parts.code}&secret=${parts.secret}`;
+}
+
+export interface PairingUrl {
+  name: string;
+  addresses: { host: string; port: number }[];
+  code: string;
+  secret: string;
+}
+
+const ADDRESS = /^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$/u;
+
+/** Reads what a scanned QR code holds, or null when it is not a pairing code of this app. */
+export function parsePairingUrl(text: string): PairingUrl | null {
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'pdfreader:' || url.hostname !== 'pair') return null;
+  const get = (key: string): string | null => url.searchParams.get(key);
+  const name = get('name');
+  const code = get('code');
+  const secret = get('secret');
+  if (get('v') !== '1' || !name || name.length > 64 || !code || normalizeCode(code) === null) return null;
+  if (!secret || !SECRET.test(secret)) return null;
+  const addresses: { host: string; port: number }[] = [];
+  for (const entry of (get('addr') ?? '').split(',')) {
+    const match = ADDRESS.exec(entry);
+    const port = Number(match?.[2]);
+    if (!match || port < 1 || port > 65535) return null;
+    addresses.push({ host: match[1]!, port });
+  }
+  return addresses.length > 0 ? { name, addresses, code, secret } : null;
 }
 
 /** What the desktop multicasts every two seconds while phone sync is on (ADR 7 section 5). */

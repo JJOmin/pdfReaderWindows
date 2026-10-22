@@ -5,9 +5,11 @@ import {
   lanAddresses,
   normalizeCode,
   pairingCode,
+  pairingUrl,
   parseAnnouncement,
   parseBearer,
   parsePairRequest,
+  parsePairingUrl,
   parseRequest,
   vpnInterfaces,
 } from '../../src/shared/pairing';
@@ -178,5 +180,64 @@ describe('vpnInterfaces and lanAddresses', () => {
         wg0: [v4('10.8.0.2')],
       }),
     ).toEqual(['192.168.1.215']);
+  });
+});
+
+describe('pairing URL', () => {
+  const SECRET = '0123456789abcdef'.repeat(2);
+  const made = {
+    name: 'Leos MacBook',
+    addresses: ['192.168.1.20', '10.0.0.5'],
+    port: 47613,
+    code: 'ABCD-EFGH-JKMN',
+    secret: SECRET,
+  };
+  // The phone's Dart port is tested with this very string.
+  const GOLDEN =
+    'pdfreader://pair?v=1&name=Leos%20MacBook&addr=192.168.1.20:47613,10.0.0.5:47613&code=ABCD-EFGH-JKMN&secret=' +
+    SECRET;
+
+  it('holds the addresses, the code and the one-time secret', () => {
+    expect(pairingUrl(made)).toBe(GOLDEN);
+  });
+
+  it('is read back, whatever the name holds', () => {
+    expect(parsePairingUrl(GOLDEN)).toEqual({
+      name: 'Leos MacBook',
+      addresses: [
+        { host: '192.168.1.20', port: 47613 },
+        { host: '10.0.0.5', port: 47613 },
+      ],
+      code: 'ABCD-EFGH-JKMN',
+      secret: SECRET,
+    });
+    const odd = pairingUrl({ ...made, name: 'Léo & “Mac”, 15%' });
+    expect(parsePairingUrl(odd)?.name).toBe('Léo & “Mac”, 15%');
+  });
+
+  it('refuses anything that is not ours', () => {
+    for (const bad of [
+      '',
+      'https://pair?v=1',
+      GOLDEN.replace('v=1', 'v=2'),
+      GOLDEN.replace('pdfreader://pair', 'pdfreader://other'),
+      GOLDEN.replace('192.168.1.20:47613,10.0.0.5:47613', 'evil.example.com:47613'),
+      GOLDEN.replace('47613,10', '99999,10'),
+      GOLDEN.replace('ABCD-EFGH-JKMN', 'ABCD'),
+      GOLDEN.replace(SECRET, 'short'),
+      GOLDEN.replace(/&addr=[^&]*/u, ''),
+    ]) {
+      expect(parsePairingUrl(bad), bad).toBeNull();
+    }
+  });
+
+  it('is a pair request that may carry the secret', () => {
+    expect(parsePairRequest({ device: DEVICE, name: 'Phone', secret: SECRET })).toEqual({
+      device: DEVICE,
+      name: 'Phone',
+      secret: SECRET,
+    });
+    expect(parsePairRequest({ device: DEVICE, name: 'Phone' })).toEqual({ device: DEVICE, name: 'Phone' });
+    expect(parsePairRequest({ device: DEVICE, name: 'Phone', secret: 'nope' })).toBeNull();
   });
 });
