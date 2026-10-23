@@ -396,6 +396,7 @@ dialog p {
   margin-bottom: 16px;
 }
 
+#stop-at-references-row,
 #polish-row {
   display: block;
   margin-bottom: 4px;

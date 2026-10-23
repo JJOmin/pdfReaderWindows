@@ -50,6 +50,9 @@ const api: Api = {
   onSyncChanged: (listener) => {
     ipcRenderer.on('sync:changed', () => listener());
   },
+  onSendMenu: (listener) => {
+    ipcRenderer.on('menu:send', () => listener());
+  },
   onNotesChanged: (listener) => {
     ipcRenderer.on('notes:changed', (_event, notes: unknown) => listener(notes as NotesFile));
   },

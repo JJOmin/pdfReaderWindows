@@ -1,5 +1,6 @@
 import { fadeEnvelope, POLISH_FADE, POLISH_HIGHPASS_HZ, POLISH_HIGHPASS_Q_DB } from '../../shared/polish';
 import type { SynthResult, Utterance } from '../../shared/types';
+import { isReferenceHeading } from '../../shared/utterances';
 
 export type ReaderState = 'idle' | 'playing' | 'paused';
 
@@ -30,6 +31,8 @@ export class Reader {
    * a change takes effect on the next sentence and the prepared audio stays valid.
    */
   polish = false;
+  /** Reading ends at the reference list's heading, unless it was started there (backlog 5). */
+  stopAtReferences = false;
   private readonly audio = new AudioContext();
   private cursor: Cursor | undefined;
   /** Bumped whenever playback is redirected, so a superseded loop notices and exits. */
@@ -156,6 +159,7 @@ export class Reader {
       while (at && run === this.run) {
         this.cursor = at;
         const utterance = (await this.host.utterances(at.page))[at.index]!;
+        if (previous && this.stopAtReferences && isReferenceHeading(utterance)) break;
         this.host.onChange(this.state, utterance, -1);
         const pending = this.synth(at, utterance);
         void this.prefetch(at);

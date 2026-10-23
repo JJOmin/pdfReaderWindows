@@ -57,8 +57,15 @@ let awaited: { page: number; ranges: readonly RawRange[]; centre?: boolean } | u
 function paintSpoken(): void {
   const utterance = spoken?.utterance;
   const word = utterance?.words[spoken!.word];
-  paint('spoken-sentence', utterance ? view.domRanges(utterance.page, utterance.ranges) : [], 1);
-  paint('spoken-word', utterance && word ? view.domRanges(utterance.page, word.ranges) : [], 2);
+  // A sentence over a page break is painted on both pages (ADR 12).
+  const sentence = utterance
+    ? [
+        ...view.domRanges(utterance.page, utterance.ranges),
+        ...(utterance.next ? view.domRanges(utterance.next.page, utterance.next.ranges) : []),
+      ]
+    : [];
+  paint('spoken-sentence', sentence, 1);
+  paint('spoken-word', utterance && word ? view.domRanges(word.page ?? utterance.page, word.ranges) : [], 2);
 }
 
 /** Scrolls a passage into the comfortable part of the view, rendering its page first if needed. */
@@ -81,7 +88,8 @@ function reveal(page: number, ranges: readonly RawRange[]): void {
 function follow(): void {
   if (!spoken || performance.now() - lastWheel < FOLLOW_PAUSE_MS) return;
   const { utterance, word } = spoken;
-  reveal(utterance.page, utterance.words[word]?.ranges ?? utterance.ranges);
+  const current = utterance.words[word];
+  reveal(current?.page ?? utterance.page, current?.ranges ?? utterance.ranges);
 }
 
 /**
@@ -517,6 +525,15 @@ const voiceSettingsChanged = (): void => {
 };
 speed.addEventListener('change', voiceSettingsChanged);
 
+const stopAtReferences = $<HTMLInputElement>('#stop-at-references');
+stopAtReferences.checked = settings.stopAtReferences;
+reader.stopAtReferences = settings.stopAtReferences;
+stopAtReferences.addEventListener('change', () => {
+  settings.stopAtReferences = stopAtReferences.checked;
+  reader.stopAtReferences = settings.stopAtReferences;
+  saveSettings();
+});
+
 const polish = $<HTMLInputElement>('#polish');
 polish.checked = settings.polish;
 reader.polish = settings.polish;
@@ -595,6 +612,10 @@ $('#open-phone').addEventListener('click', () => {
   void showSendTargets();
 });
 $('#phone-cancel').addEventListener('click', () => preparing?.abort());
+api.onSendMenu(() => {
+  if (!$<HTMLDialogElement>('#phone').open) $('#open-phone').click();
+  void showSendTargets().then(() => $('#send-target').focus());
+});
 /** The open document's pages that have audio, and the voices that made it. */
 let held: { voiced: number[]; voices: string } = { voiced: [], voices: '' };
 /** The pause button: rendering runs by default, and stays paused for the session once paused. */

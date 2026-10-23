@@ -51,6 +51,14 @@ describe('normalizeSettings', () => {
   });
 });
 
+describe('stopAtReferences', () => {
+  it('is off unless switched on', () => {
+    expect(defaultSettings().stopAtReferences).toBe(false);
+    expect(normalizeSettings({ stopAtReferences: true }).stopAtReferences).toBe(true);
+    expect(normalizeSettings({ stopAtReferences: 'yes' }).stopAtReferences).toBe(false);
+  });
+});
+
 describe('polish', () => {
   it('is off by default and keeps only a real boolean', () => {
     expect(defaultSettings().polish).toBe(false);

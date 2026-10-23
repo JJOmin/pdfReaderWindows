@@ -28,6 +28,8 @@ export type RawRange = readonly [start: number, end: number];
 export interface Word {
   text: string;
   ranges: RawRange[];
+  /** Set for a word of a sentence's continuation on the next page (ADR 12); else the utterance's page. */
+  page?: number;
 }
 
 /** One unit handed to the speech engine: a sentence or a heading. */
@@ -41,6 +43,8 @@ export interface Utterance {
   role: Role;
   words: Word[];
   ranges: RawRange[];
+  /** The part of a sentence that runs over the page break, on the next page (ADR 12). */
+  next?: { page: number; ranges: RawRange[] };
 }
 
 export interface WordTiming {
@@ -84,6 +88,8 @@ export interface Settings {
   focusMode: boolean;
   /** Fade each sentence in and out and cut rumble below the voice, when it is played. */
   polish: boolean;
+  /** Reading aloud ends at the reference list's heading (backlog 5). */
+  stopAtReferences: boolean;
 }
 
 export interface VoiceOption extends VoiceRef {
@@ -328,6 +334,8 @@ export interface Api {
   syncState(): Promise<SyncFacts>;
   /** Something the sync button shows may have changed: ask `syncState` again. */
   onSyncChanged(listener: () => void): void;
+  /** "Send to Phone…" in the app menu: open the Phone dialog at "Send to". */
+  onSendMenu(listener: () => void): void;
   /** A phone's marks were merged into the open document's notes: show these. */
   onNotesChanged(listener: (notes: NotesFile) => void): void;
 }

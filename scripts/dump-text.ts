@@ -12,7 +12,7 @@ import { TEXT_CONTENT_OPTIONS, toRawItems } from '../src/shared/items.ts';
 import { guessLang } from '../src/shared/language.ts';
 import { layoutPage, type Block } from '../src/shared/layout.ts';
 import { pageWords } from '../src/shared/phone-library.ts';
-import { buildUtterances } from '../src/shared/utterances.ts';
+import { buildUtterances, joinedPage } from '../src/shared/utterances.ts';
 
 const args = process.argv.slice(2);
 const wordsOnly = args.includes('--words');
@@ -38,10 +38,13 @@ const lang = guessLang(
     .map((b) => b.text)
     .join(' '),
 ).lang;
+// As the app reads them: a sentence over a page break whole on the page it starts on (ADR 12).
+const own = pages.map((blocks, i) => buildUtterances(blocks, i + 1, lang));
+const utterances = own.map((page, i) => joinedPage(own[i - 1], page, own[i + 1]));
 if (wordsOnly) {
   const result = pages
-    .map((blocks, i) => {
-      const words = pageWords(buildUtterances(blocks, i + 1, lang));
+    .map((_blocks, i) => {
+      const words = pageWords(utterances[i]!);
       const wordsHash = createHash('sha256').update(words.join(' ')).digest('hex');
       return { page: i + 1, wordCount: words.length, wordsHash, words };
     })
@@ -51,10 +54,10 @@ if (wordsOnly) {
   process.exit(0);
 }
 console.log(`# ${file}: ${doc.numPages} pages, document language ${lang}`);
-pages.forEach((blocks, i) => {
+pages.forEach((_blocks, i) => {
   if (onlyPage && Number(onlyPage) !== i + 1) return;
   console.log(`\n## Page ${i + 1}`);
-  for (const u of buildUtterances(blocks, i + 1, lang)) {
+  for (const u of utterances[i]!) {
     console.log(`[${u.role.padEnd(7)} ${u.lang}] ${u.spoken}`);
   }
 });

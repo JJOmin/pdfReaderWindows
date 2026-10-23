@@ -81,6 +81,8 @@ export interface PhoneServerOptions {
   /** The computer's name, shown in the phone's list of desktops. */
   name: string;
   box: { encrypt(text: string): string; decrypt(text: string): string };
+  /** The documents the user stopped syncing: phones on Wi-Fi do not see them either. */
+  stopped?(): Promise<string[]>;
   /** "Send to phone": the offers for a phone, and taking one out when the phone handled it. */
   inbox?: {
     offers(device: string): Promise<Offer[]>;
@@ -380,6 +382,7 @@ export class PhoneServer {
     const phone = await this.phoneFor(request);
     if (!phone) return empty(response, 401);
     const root = this.options.libraryRoot;
+    const stopped = new Set((await this.options.stopped?.()) ?? []);
     const before = this.seen.get(phone.device) ?? 0;
     this.seen.set(phone.device, Date.now());
     // Only the step from away to connected is news for the dialog, not every poll.
@@ -396,7 +399,7 @@ export class PhoneServer {
       const now = Date.now();
       const docs: Record<string, DocTimes> = {};
       for (const docId of existsSync(root) ? await readdir(root) : []) {
-        const manifest = await this.manifest(docId);
+        const manifest = stopped.has(docId) ? null : await this.manifest(docId);
         if (!manifest) continue;
         const folder = join(root, docId);
         const states = existsSync(join(folder, 'state')) ? await readdir(join(folder, 'state')) : [];
@@ -414,13 +417,13 @@ export class PhoneServer {
     if (parsed.kind === 'library') {
       const documents: Manifest[] = [];
       for (const docId of existsSync(root) ? await readdir(root) : []) {
-        const manifest = await this.manifest(docId);
+        const manifest = stopped.has(docId) ? null : await this.manifest(docId);
         if (manifest) documents.push(manifest);
       }
       return json(response, 200, documents);
     }
-    // Only a whole document is served: the manifest is written last.
-    if (!(await this.manifest(parsed.docId))) return empty(response, 404);
+    // Only a document in the library is served, and not one the user stopped syncing.
+    if (stopped.has(parsed.docId) || !(await this.manifest(parsed.docId))) return empty(response, 404);
     const folder = join(root, parsed.docId);
 
     if (parsed.kind === 'file') {

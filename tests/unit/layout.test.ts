@@ -79,6 +79,52 @@ describe('layoutPage', () => {
     expect(blocks.map((b) => b.text)).toEqual(['Body text that stays in the result.']);
   });
 
+  it('leaves out small figure labels, but keeps captions, small-caps section headings and footnote sentences (backlog 1)', () => {
+    const blocks = layoutPage(
+      [
+        line('This is the body text of the paper. It is long enough to set the size.', 712),
+        line('A second line of body text, so that the page has more body than small print.', 700),
+        line('And a third one, as a real page has far more body text than labels in it.', 688),
+        line('E[CLS] E1 E[SEP]', 600, { height: 8 }),
+        line('Input Embeddings', 580, { height: 8 }),
+        line('Figure 1: Overview of the model', 540, { height: 8 }),
+        line('V. A STUDY ON THE IMPORTANCE OF QUALITY', 500, { height: 8 }),
+        line('CRITERIA FOR TUTORIALS', 490, { height: 8 }),
+        line('1 This footnote is a sentence of its own.', 120, { height: 8 }),
+      ],
+      PAGE_HEIGHT,
+    );
+    expect(blocks.map((b) => b.text)).toEqual([
+      'This is the body text of the paper. It is long enough to set the size. A second line of body text, so that the page has more body than small print. And a third one, as a real page has far more body text than labels in it.',
+      'Figure 1: Overview of the model',
+      'V. A STUDY ON THE IMPORTANCE OF QUALITY CRITERIA FOR TUTORIALS',
+      '1 This footnote is a sentence of its own.',
+    ]);
+  });
+
+  it('leaves out table rows of numbers and displayed formulas, but not sentences with numbers (backlog 1, 2)', () => {
+    const blocks = layoutPage(
+      [
+        line('This is the body text of the paper. It is long enough to set the size.', 700),
+        line('I1 2.13 (1.20) I10 0.43 (2.00) I2 1.47 (1.59)', 650),
+        line('E = mc² (1)', 600),
+        line('f(x) = Σ a_i x^i', 560),
+        line('In 2023, 45 % of 1,200 users agreed.', 520),
+        line('We set α = 0.5 for all runs.', 500),
+        line('RQ1:', 480),
+        line('II.', 440),
+      ],
+      PAGE_HEIGHT,
+    );
+    expect(blocks.map((b) => b.text)).toEqual([
+      'This is the body text of the paper. It is long enough to set the size.',
+      'In 2023, 45 % of 1,200 users agreed.',
+      'We set α = 0.5 for all runs.',
+      'RQ1:',
+      'II.',
+    ]);
+  });
+
   it('starts a new block when the text jumps to the next column', () => {
     const blocks = layoutPage(
       [line('End of column one.', 100), line('Top of column two.', 700)],

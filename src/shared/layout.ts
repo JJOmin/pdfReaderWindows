@@ -19,6 +19,15 @@ interface Line {
 const HEADER_ZONE = 0.935;
 const FOOTER_ZONE = 0.065;
 const NUMBERED_HEADING = /^(\d+(\.\d+)*\.?|[IVX]+\.)\s+\p{Lu}/u;
+/** A figure's or table's caption, which is read although it is set small (backlog 1). */
+const CAPTION = /^(fig(ure|\.)?|table|tab\.|abb(ildung|\.)|tabelle)\s*[\dIVX]/iu;
+/** Text this much smaller than the body, without a sentence's end, is a label inside a figure. */
+const FIGURE_SIZE = 0.88;
+/** Below this share of letters among the visible characters a block is a table row or a formula. */
+const SYMBOLIC = 0.5;
+const MATH_OPERATOR = /[=<>≤≥≈≠∑Σ∏∫∂√∞∈∉±×÷^]/u;
+/** A word of three letters or more. A formula has at most two, such as "max" and "log". */
+const PROSE_WORD = /\p{L}{3,}/gu;
 
 function dominant<T>(entries: Iterable<readonly [T, number]>): T | undefined {
   const weights = new Map<T, number>();
@@ -102,7 +111,26 @@ function appendLine(block: { text: string; raw: number[] }, line: Line): void {
   block.raw.push(...raw);
 }
 
-/** Turns one page's text runs into paragraphs and headings, dropping running headers and footers. */
+/**
+ * Text that is not read (backlog 1 and 2): a label inside a figure (smaller than the body, no
+ * sentence end, short), a table row (mostly digits and symbols), or a displayed formula (a math
+ * operator and hardly a word of prose). Fonts
+ * are not asked: PDF.js and PDFium name them differently, and the phone must leave out the same text.
+ */
+function notProse(text: string, size: number, bodySize: number, unterminated: boolean): boolean {
+  const visible = text.replace(/\s/gu, '');
+  const letters = (visible.match(/\p{L}/gu) ?? []).length;
+  const symbolic = visible.length >= 3 && letters / visible.length < SYMBOLIC;
+  const label = unterminated && text.length <= 80 && size <= bodySize * FIGURE_SIZE;
+  const formula =
+    text.length <= 150 && MATH_OPERATOR.test(text) && (text.match(PROSE_WORD) ?? []).length <= 2;
+  return symbolic || label || formula;
+}
+
+/**
+ * Turns one page's text runs into paragraphs and headings, dropping running headers and footers, and
+ * figure labels, table rows and displayed formulas.
+ */
 export function layoutPage(items: RawItem[], pageHeight: number): Block[] {
   const lines = toLines(items);
   const bodySize = dominant(lines.map((l) => [l.size, l.text.length])) ?? 0;
@@ -141,7 +169,14 @@ export function layoutPage(items: RawItem[], pageHeight: number): Block[] {
     const numbered = group.length === 1 && block.text.length <= 100 && NUMBERED_HEADING.test(block.text);
     const titleLike =
       group.length === 1 && first.font !== bodyFont && block.text.length <= 60 && /^\p{Lu}/u.test(block.text);
-    blocks.push({ ...block, heading: short && unterminated && (larger || numbered || titleLike) });
+    const heading = short && unterminated && (larger || numbered || titleLike);
+    // A numbered section heading in small capitals is smaller than the body, but no figure label.
+    // `heading` is not asked: it depends on font names, which the phone sees differently.
+    const kept = larger || CAPTION.test(block.text) || NUMBERED_HEADING.test(block.text);
+    if (!kept && notProse(block.text, first.size, bodySize, unterminated)) {
+      continue;
+    }
+    blocks.push({ ...block, heading });
   }
   return blocks;
 }

@@ -7,7 +7,7 @@ import { ZOOM_LIMITS } from '../../shared/settings';
 import { rawString, TEXT_CONTENT_OPTIONS, toRawItems } from '../../shared/items';
 import { layoutPage, type Block } from '../../shared/layout';
 import type { Lang, RawItem, RawRange, Utterance } from '../../shared/types';
-import { buildUtterances } from '../../shared/utterances';
+import { buildUtterances, joinedPage } from '../../shared/utterances';
 import { glyphBoxes, placeOnRaw, segmentRun, type FontMetrics, type Placement } from './glyphs';
 import { lineRects, type Span, type TextView } from './view';
 
@@ -137,6 +137,7 @@ export class Pdf implements TextView {
   private doc: pdfjs.PDFDocumentProxy | undefined;
   private blocks = new Map<number, Promise<PageBlocks>>();
   private utterances = new Map<number, Promise<Utterance[]>>();
+  private ownCache = new Map<number, Promise<Utterance[]>>();
   /** Pages whose text has been read, for the synchronous lookups the views need. */
   private loaded = new Map<number, PageBlocks>();
   private placements = new Map<number, Promise<Placement | undefined>>();
@@ -202,6 +203,7 @@ export class Pdf implements TextView {
     this.doc = await this.task.promise;
     this.blocks.clear();
     this.utterances.clear();
+    this.ownCache.clear();
     this.loaded.clear();
     this.placements.clear();
     this.lang = undefined;
@@ -351,12 +353,31 @@ export class Pdf implements TextView {
   }
 
   /** The sentences and headings of a page, in the order they are read aloud. */
-  pageUtterances(page: number): Promise<Utterance[]> {
-    let result = this.utterances.get(page);
+  /** A page's sentences as layout finds them, before page breaks are undone. */
+  private ownUtterances(page: number): Promise<Utterance[]> {
+    let result = this.ownCache.get(page);
     if (!result) {
       result = Promise.all([this.pageBlocks(page), this.documentLang()]).then(([{ blocks }, lang]) =>
         buildUtterances(blocks, page, lang),
       );
+      this.ownCache.set(page, result);
+    }
+    return result;
+  }
+
+  /**
+   * A page's sentences, a sentence over the page break whole on the page it starts on (ADR 12):
+   * so the next page is read too, and the previous one.
+   */
+  pageUtterances(page: number): Promise<Utterance[]> {
+    let result = this.utterances.get(page);
+    if (!result) {
+      const count = this.pageCount;
+      result = Promise.all([
+        page > 1 ? this.ownUtterances(page - 1) : undefined,
+        this.ownUtterances(page),
+        page < count ? this.ownUtterances(page + 1) : undefined,
+      ]).then(([previous, own, next]) => joinedPage(previous, own, next));
       this.utterances.set(page, result);
     }
     return result;

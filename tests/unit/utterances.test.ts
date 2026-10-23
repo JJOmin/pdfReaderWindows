@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { guessLang, sentenceLang } from '../../src/shared/language';
 import type { Block } from '../../src/shared/layout';
-import { buildUtterances } from '../../src/shared/utterances';
+import type { Utterance } from '../../src/shared/types';
+import { buildUtterances, isReferenceHeading, joinedPage } from '../../src/shared/utterances';
 
 /** A block whose text is also the page's raw string. */
 const block = (text: string, heading = false): Block => ({
@@ -92,5 +93,86 @@ describe('buildUtterances', () => {
     expect(u?.spoken).toBe('This was shown before and later.');
     expect(u?.text).toContain('[3, 14]');
     expect(u?.words.map((w) => w.text)).toEqual(['This', 'was', 'shown', 'before', 'and', 'later']);
+  });
+});
+
+describe('isReferenceHeading', () => {
+  const heading = (text: string, role: 'heading' | 'main' = 'heading'): Utterance => ({
+    page: 1,
+    text,
+    spoken: text,
+    lang: 'en',
+    role,
+    words: [],
+    ranges: [],
+  });
+
+  it('knows the reference list by its heading, numbered or not, in English and German', () => {
+    for (const text of [
+      'References',
+      'REFERENCES',
+      '7 References',
+      'VII. References',
+      'Bibliography',
+      'Literatur',
+      '6.1 Literaturverzeichnis',
+      'Works Cited',
+      'Quellenverzeichnis',
+      'Literature',
+    ]) {
+      expect(isReferenceHeading(heading(text)), text).toBe(true);
+    }
+  });
+
+  it('is the heading set as body text too, but not a sentence or heading that only mentions references', () => {
+    expect(isReferenceHeading(heading('REFERENCES', 'main'))).toBe(true);
+    expect(isReferenceHeading(heading('See the references.', 'main'))).toBe(false);
+    for (const text of ['References to prior work', 'Related Work', 'Literature review']) {
+      expect(isReferenceHeading(heading(text)), text).toBe(false);
+    }
+  });
+});
+
+describe('joinedPage (ADR 12)', () => {
+  const u = (page: number, text: string, role: Utterance['role'] = 'main'): Utterance => ({
+    page,
+    text,
+    spoken: text,
+    lang: 'en',
+    role,
+    words: text
+      .split(' ')
+      .map((w, i) => ({ text: w.replace(/[.,]/gu, ''), ranges: [[i * 10, i * 10 + w.length]] })),
+    ranges: [[0, text.length]],
+  });
+  const page1 = [u(1, 'First sentence.'), u(1, 'This sentence runs over')];
+  const page2 = [u(2, 'the page break.'), u(2, 'Then another one.')];
+
+  it('joins the next page’s start onto a sentence that has no end, its words on their own page', () => {
+    const joined = joinedPage(undefined, page1, page2);
+    expect(joined.map((s) => s.text)).toEqual(['First sentence.', 'This sentence runs over the page break.']);
+    const last = joined[1]!;
+    expect(last.page).toBe(1);
+    expect(last.next).toEqual({ page: 2, ranges: [[0, 15]] });
+    expect(last.words.map((w) => w.page)).toEqual([undefined, undefined, undefined, undefined, 2, 2, 2]);
+    expect(last.words.at(-1)).toEqual({ text: 'break', ranges: [[20, 26]], page: 2 });
+  });
+
+  it('leaves the joined start out of the next page', () => {
+    expect(joinedPage(page1, page2, undefined).map((s) => s.text)).toEqual(['Then another one.']);
+  });
+
+  it('joins nothing after a sentence end, a colon, or a heading on either side', () => {
+    for (const ending of ['Ends here.', 'Asked?', 'As follows:', '“Quoted.”']) {
+      expect(joinedPage(undefined, [u(1, ending)], page2)).toHaveLength(1);
+    }
+    expect(joinedPage(undefined, [u(1, '2 Methods', 'heading')], page2)).toHaveLength(1);
+    expect(joinedPage(undefined, page1, [u(2, 'Results', 'heading')])).toHaveLength(2);
+    expect(joinedPage(undefined, page1, [u(2, 'Results', 'heading')])[1]!.next).toBeUndefined();
+  });
+
+  it('is the page as it is on the last page, and for an empty one', () => {
+    expect(joinedPage(undefined, page1, undefined)).toEqual(page1);
+    expect(joinedPage(undefined, [], page2)).toEqual([]);
   });
 });

@@ -124,6 +124,7 @@ const phones = new PhoneServer({
   dir: app.getPath('userData'),
   libraryRoot,
   name: computerName,
+  stopped: () => sync.stopped(),
   inbox: {
     offers: async (device) => (await inbox.load())[device] ?? [],
     handled: async (device, docId) => {
@@ -535,6 +536,10 @@ function macMenu(): Menu {
       label: 'File',
       submenu: [
         { id: 'open', label: 'Open…', accelerator: 'Cmd+O', click: () => void chooseAndOpen() },
+        {
+          label: 'Send to Phone…',
+          click: () => BrowserWindow.getAllWindows()[0]?.webContents.send('menu:send'),
+        },
         { type: 'separator' },
         { role: 'close' },
       ],

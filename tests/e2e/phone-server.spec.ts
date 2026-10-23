@@ -353,6 +353,17 @@ test('a phone asks what changed since a time, and is told only of others’ chan
   await page.keyboard.press('Escape');
 });
 
+test('a document the user stopped syncing is not shown to phones on Wi-Fi either', async () => {
+  await page.evaluate((id) => window.api.syncSetDocument(id, false), docId);
+  const library = JSON.parse((await call('GET', '/v1/library', { token })).body.toString()) as unknown[];
+  expect(library).toEqual([]);
+  const changes = JSON.parse((await call('GET', '/v1/changes?since=0', { token })).body.toString());
+  expect(changes.docs).toEqual({});
+  expect((await call('GET', `/v1/doc/${docId}/manifest.json`, { token })).status).toBe(404);
+  await page.evaluate((id) => window.api.syncSetDocument(id, true), docId);
+  expect(JSON.parse((await call('GET', '/v1/library', { token })).body.toString())).toHaveLength(1);
+});
+
 test('Send to phone puts the document in that phone’s inbox, until the phone says it is handled', async () => {
   // Stopped first, to see that sending makes it synced again.
   await page.evaluate((id) => window.api.syncSetDocument(id, false), docId);

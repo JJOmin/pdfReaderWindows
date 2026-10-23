@@ -82,3 +82,53 @@ export function buildUtterances(blocks: Block[], page: number, documentLang: Lan
   }
   return utterances;
 }
+
+/**
+ * The heading of a reference list, numbered or not: where reading may stop (backlog 5). Layout does
+ * not always see it as a heading (IEEE's "REFERENCES" is set in body size), so a sentence that is
+ * nothing but the heading counts too.
+ */
+const REFERENCE_HEADING =
+  /^(?:(?:\d+(?:\.\d+)*|[IVX]+)\.?\s+)?(?:references|bibliography|literature|works cited|literatur|literaturverzeichnis|quellen|quellenverzeichnis)$/iu;
+
+export const isReferenceHeading = (utterance: Utterance): boolean =>
+  REFERENCE_HEADING.test(utterance.text.trim());
+
+/** A sentence's end: what a sentence cut by a page break lacks. */
+const SENTENCE_END = /[.!?…:]["”’»)\]]*$/u;
+
+/** Whether `first`, the next page's first sentence, goes on `last`, this page's last (ADR 12). */
+export const continuesOver = (last: Utterance | undefined, first: Utterance | undefined): boolean =>
+  last !== undefined &&
+  first !== undefined &&
+  last.role !== 'heading' &&
+  first.role !== 'heading' &&
+  !SENTENCE_END.test(last.text);
+
+/**
+ * A page's sentences with page breaks undone (ADR 12, the owner's rule of 2026-10-22): a sentence
+ * that starts on this page belongs to it whole, so the next page's first sentence is joined on when
+ * this page's last one has no end, and this page's first sentence is left out when it was joined
+ * onto the page before. The words of the continuation keep their own page, so every raw range
+ * stays on the page it is on.
+ * // shortcut: a word hyphenated over the page break is read as two. Upgrade if it is heard often.
+ */
+export function joinedPage(
+  previous: readonly Utterance[] | undefined,
+  own: readonly Utterance[],
+  next: readonly Utterance[] | undefined,
+): Utterance[] {
+  const list = continuesOver(previous?.at(-1), own[0]) ? own.slice(1) : [...own];
+  const last = list.at(-1);
+  const first = next?.[0];
+  if (!last || !first || !continuesOver(last, first)) return list;
+  const join = (a: string, b: string): string => `${a} ${b}`;
+  list[list.length - 1] = {
+    ...last,
+    text: join(last.text, first.text),
+    spoken: join(last.spoken, first.spoken),
+    words: [...last.words, ...first.words.map((w) => ({ ...w, page: first.page }))],
+    next: { page: first.page, ranges: first.ranges },
+  };
+  return list;
+}
