@@ -162,6 +162,26 @@ These are the honest gaps, in rough order of how much they hurt.
     - How it reads numbers, abbreviations and formulas was not checked.
     - The helper script is found next to the app's files; a packaged installer does not carry it.
 
+## Comment badges (asked 2026-10-23, with the phone's spoken comments)
+
+A marked section that has a comment shows a small icon above its first line: a note for a typed
+comment, a microphone for a comment the phone wrote out from speech. The desktop cannot dictate; it
+only shows what the phone made.
+
+- **The file.** A mark may carry `"via": "speech"`, written between `created` and `updated`. A file
+  without it reads and writes as before; a value other than `speech` is ignored. It travels with the
+  mark through the merge (`tests/unit/notes-merge.test.ts`), and `tests/golden/notes-via.json`
+  is read byte for byte by this repository and by the phone.
+- **The rule.** `markBadge` in `src/shared/notes.ts`: no icon without a comment (blank counts as
+  none), a note for a typed one, a microphone for `via: "speech"`. The phone's `markBadge` follows
+  it.
+- **The icons.** `src/renderer/src/mark-badges.ts` puts a 14 px button in the scrolling container
+  above the first line of the mark, in the mark's colour, in the pages and in the reading view; a
+  click opens the comment in the sidebar. They are made again whenever the marks are painted, and
+  as soon as a comment gains its first words or loses its last.
+- **Checked.** `tests/e2e/badges.spec.ts`: the right icon on the right marks, above the first line
+  and at its start, moving with the scroll, clicking, typing, and the reading view.
+
 ## Next: improvement round 1 (asked 2026-10-22)
 
 The owner asked for four groups in one improvement commit per repository, built step by step:

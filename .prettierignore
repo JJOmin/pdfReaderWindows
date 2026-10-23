@@ -5,3 +5,5 @@ src/renderer/public/
 test-results/
 playwright-report/
 package-lock.json
+# Written by JSON.stringify without a final newline, byte for byte as the phone reads it.
+tests/golden/notes-via.json

@@ -119,6 +119,12 @@ export type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
 export const MARK_KINDS = ['highlight', 'underline', 'strike'] as const;
 export type MarkKind = (typeof MARK_KINDS)[number];
 
+/** How a comment came to be written. Only speech is told apart from typing. */
+export type MarkVia = 'speech';
+
+/** The small icon above a mark that has a comment: a note for typed text, a microphone for spoken. */
+export type MarkBadge = 'note' | 'speech';
+
 export interface Annotation {
   id: string;
   page: number;
@@ -132,6 +138,11 @@ export interface Annotation {
   color: HighlightColor;
   comment: string;
   created: string;
+  /**
+   * How the comment was made: `'speech'` when it was spoken to the phone and written out by its
+   * speech recogniser. Absent for a typed comment, and in files written before this field.
+   */
+  via?: MarkVia;
   /** When it was last changed, in milliseconds. Set when notes are saved; older files have none. */
   updated?: number;
 }

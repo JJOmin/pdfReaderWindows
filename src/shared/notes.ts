@@ -1,4 +1,11 @@
-import { HIGHLIGHT_COLORS, MARK_KINDS, type Annotation, type NotesFile, type Removal } from './types.ts';
+import {
+  HIGHLIGHT_COLORS,
+  MARK_KINDS,
+  type Annotation,
+  type MarkBadge,
+  type NotesFile,
+  type Removal,
+} from './types.ts';
 
 const time = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -41,6 +48,8 @@ export function parseNotes(value: unknown): NotesFile | null {
       color: a.color!,
       comment: a.comment,
       created: typeof a.created === 'string' ? a.created : '',
+      // Between `created` and `updated`, where the phone writes it too.
+      ...(a.via === 'speech' ? { via: 'speech' as const } : {}),
       ...(updated === undefined ? {} : { updated }),
     });
   }
@@ -87,6 +96,13 @@ export function reanchor(annotation: Annotation, pageRaw: string): Annotation | 
     ? { ...annotation, start: match.index, end: match.index + match[0].length, text: match[0] }
     : null;
 }
+
+/**
+ * The icon a mark shows above its text: none without a comment, a note for a typed comment and a
+ * microphone for one that was spoken. The phone's `markBadge` follows the same rule.
+ */
+export const markBadge = (a: Annotation): MarkBadge | undefined =>
+  a.comment.trim() === '' ? undefined : a.via === 'speech' ? 'speech' : 'note';
 
 export const sortAnnotations = (annotations: Annotation[]): Annotation[] =>
   [...annotations].sort((a, b) => a.page - b.page || a.start - b.start);

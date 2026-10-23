@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "notes": "Spoken and typed comments.",
+  "annotations": [
+    {
+      "id": "plain",
+      "page": 2,
+      "start": 4,
+      "end": 9,
+      "text": "quick",
+      "quote": "quick",
+      "kind": "highlight",
+      "color": "yellow",
+      "comment": "",
+      "created": "2026-10-23T09:00:00.000Z"
+    },
+    {
+      "id": "typed",
+      "page": 2,
+      "start": 4,
+      "end": 9,
+      "text": "quick",
+      "quote": "quick",
+      "kind": "highlight",
+      "color": "yellow",
+      "comment": "Typed: Größe 😀",
+      "created": "2026-10-23T09:00:00.000Z",
+      "updated": 1700000000001
+    },
+    {
+      "id": "spoken",
+      "page": 2,
+      "start": 4,
+      "end": 9,
+      "text": "quick",
+      "quote": "quick",
+      "kind": "underline",
+      "color": "blue",
+      "comment": "Das habe ich gesagt",
+      "created": "2026-10-23T09:00:00.000Z",
+      "via": "speech",
+      "updated": 1700000000002
+    }
+  ],
+  "notesUpdated": 1700000000000
+}

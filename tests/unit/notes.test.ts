@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseNotes, reanchor, toMarkdown } from '../../src/shared/notes';
+import { markBadge, parseNotes, reanchor, toMarkdown } from '../../src/shared/notes';
 import type { Annotation, NotesFile } from '../../src/shared/types';
 
 const annotation = (over: Partial<Annotation> = {}): Annotation => ({
@@ -34,6 +35,44 @@ describe('parseNotes', () => {
       kind: 'highlight',
       quote: 'qu-ick',
     });
+  });
+});
+
+describe('how a comment was made (via)', () => {
+  const read = (over: Record<string, unknown>) =>
+    parseNotes({ version: 1, notes: '', annotations: [{ ...annotation(), ...over }] })?.annotations[0];
+
+  it('is read, and written back in the place the phone writes it, between created and updated', () => {
+    const mark = read({ via: 'speech', updated: 5, comment: 'spoken' })!;
+    expect(mark.via).toBe('speech');
+    expect(Object.keys(mark).slice(-3)).toEqual(['created', 'via', 'updated']);
+  });
+
+  it('is left out of a mark that has none, so that a file written before reads and writes as it did', () => {
+    expect('via' in read({})!).toBe(false);
+  });
+
+  it('ignores a value this version does not know instead of refusing the file', () => {
+    expect('via' in read({ via: 'telepathy' })!).toBe(false);
+    expect('via' in read({ via: 3 })!).toBe(false);
+  });
+
+  it('matches the golden file the phone also reads, byte for byte', () => {
+    const golden = readFileSync('tests/golden/notes-via.json', 'utf8');
+    expect(JSON.stringify(parseNotes(JSON.parse(golden)), null, 2)).toBe(golden);
+  });
+});
+
+describe('markBadge', () => {
+  it('shows nothing for a mark without a comment, however it was made', () => {
+    expect(markBadge(annotation())).toBeUndefined();
+    expect(markBadge(annotation({ comment: '  \n ' }))).toBeUndefined();
+    expect(markBadge(annotation({ via: 'speech' }))).toBeUndefined();
+  });
+
+  it('shows a note for a written comment and a microphone for a spoken one', () => {
+    expect(markBadge(annotation({ comment: 'typed' }))).toBe('note');
+    expect(markBadge(annotation({ comment: 'spoken', via: 'speech' }))).toBe('speech');
   });
 });
 

@@ -1,5 +1,5 @@
 import { readableText } from '../../shared/layout';
-import { emptyNotes, reanchor, sortAnnotations, toMarkdown } from '../../shared/notes';
+import { emptyNotes, markBadge, reanchor, sortAnnotations, toMarkdown } from '../../shared/notes';
 import {
   HIGHLIGHT_COLORS,
   MARK_KINDS,
@@ -11,6 +11,7 @@ import {
   type RawRange,
 } from '../../shared/types';
 import { paint } from './highlights';
+import { paintBadges } from './mark-badges';
 import type { Pdf } from './pdf';
 import type { Span, TextView } from './view';
 
@@ -94,6 +95,12 @@ export class NotesPanel {
         paint(`note-${kind}-${color}`, ranges);
       }
     }
+    paintBadges(
+      view,
+      this.file.annotations,
+      (a) => this.anchored(a),
+      (a) => this.focus(a.id),
+    );
   }
 
   /** The annotation at its current place in the page text, or undefined if its text is gone. */
@@ -213,7 +220,10 @@ export class NotesPanel {
       comment.rows = 2;
       comment.value = annotation.comment;
       comment.addEventListener('input', () => {
+        const before = markBadge(annotation);
         annotation.comment = comment.value;
+        // The icon appears with the first words and goes with the last.
+        if (markBadge(annotation) !== before) this.paint();
         this.save();
       });
 

@@ -132,6 +132,27 @@ describe('mergeNotes', () => {
   });
 });
 
+describe('how a comment was made (via)', () => {
+  it('travels with the mark through a merge, so a spoken comment stays spoken on the other device', () => {
+    const spoken = mark('a', { comment: 'spoken', via: 'speech', updated: 200 });
+    const merged = mergeNotes(file([mark('a', { updated: 100 })]), file([spoken]));
+    expect(merged.annotations[0]).toEqual(spoken);
+    expect(mergeNotes(file([spoken]), file([mark('a', { updated: 100 })])).annotations[0]).toEqual(spoken);
+  });
+
+  it('counts as a change: marking a comment as spoken re-stamps the mark', () => {
+    const before = file([mark('a', { comment: 'c', updated: 100 })]);
+    const after = file([mark('a', { comment: 'c', via: 'speech', updated: 100 })]);
+    expect(stampChanges(before, after, 500).annotations[0]!.updated).toBe(500);
+  });
+
+  it('is not lost when the mark is stamped again unchanged', () => {
+    const before = file([mark('a', { comment: 'c', via: 'speech', updated: 100 })]);
+    const again = stampChanges(before, file([mark('a', { comment: 'c', via: 'speech' })]), 500);
+    expect(again.annotations[0]).toMatchObject({ via: 'speech', updated: 100 });
+  });
+});
+
 describe('the new fields in a notes file', () => {
   it('are read and written back, and a file without them is read as it was', () => {
     const full = file([mark('a', { updated: 100 })], {
