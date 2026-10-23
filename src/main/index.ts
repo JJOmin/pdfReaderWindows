@@ -7,6 +7,7 @@ import {
   net,
   protocol,
   safeStorage,
+  session,
   shell,
   systemPreferences,
 } from 'electron';
@@ -18,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 import { emptyNotes, parseNotes } from '../shared/notes';
 import { parseDictation } from '../shared/dictation';
 import { stampChanges } from '../shared/notes-merge';
-import { parseSynthRequest } from '../shared/requests';
+import { isTrustedOrigin, mayUseDevice, parseSynthRequest } from '../shared/requests';
 import {
   normalizeProgress,
   normalizeSettings,
@@ -57,12 +58,23 @@ const CSP = [
   "font-src 'self' data: blob:",
   "worker-src 'self' blob:",
   "connect-src 'self' data: blob:",
+  // Nothing in the window embeds, submits or re-bases anything.
+  "object-src 'none'",
+  "frame-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
 ].join('; ');
+/** The dev server's address, in development only; the packaged app has none. */
+const devUrl = process.env.ELECTRON_RENDERER_URL;
 
 // The computer's name, as phones list it. PDFREADER_DEVICE_NAME lets a test app be told from the real one.
 const computerName = process.env.PDFREADER_DEVICE_NAME || hostname();
 // PDFREADER_USER_DATA lets tests run against a throwaway profile.
 if (process.env.PDFREADER_USER_DATA) app.setPath('userData', process.env.PDFREADER_USER_DATA);
+// The installed app keeps its data where it always was, in the folder named for the app's old name,
+// "PDF Reader" (ADR 9): the settings, the phone library and the paired phones stay when the product
+// is renamed. A development run has its own folder, named for the package.
+else if (app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'PDF Reader'));
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json');
 const { modelsDir, helperScript } = resourcePaths({
   packaged: app.isPackaged,
@@ -340,7 +352,14 @@ async function syncedDocuments(): Promise<SyncedDocument[]> {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('pdf:open', async (event) => {
+  // Every call must come from the app's own page: the window never navigates (will-navigate is
+  // refused), so this holds unless something other than the app's files got into it.
+  const handle: typeof ipcMain.handle = (channel, listener) =>
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!isTrustedOrigin(event.senderFrame?.url ?? '', devUrl)) throw new Error('Refused');
+      return listener(event, ...args);
+    });
+  handle('pdf:open', async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)!;
     const { filePaths } = await dialog.showOpenDialog(window, {
       properties: ['openFile'],
@@ -349,10 +368,10 @@ function registerIpc(): void {
     return filePaths[0] ? loadPdf(filePaths[0]) : null;
   });
   // The preload sends the path of a file dropped on the window; anything else is refused.
-  ipcMain.handle('pdf:open-path', (_event, path: unknown) =>
+  handle('pdf:open-path', (_event, path: unknown) =>
     typeof path === 'string' && /\.pdf$/iu.test(path) && existsSync(path) ? loadPdf(path) : null,
   );
-  ipcMain.handle('pdf:initial', () => {
+  handle('pdf:initial', () => {
     windowReady = true;
     const fromArgv = argvUsed
       ? undefined
@@ -362,7 +381,7 @@ function registerIpc(): void {
     pendingPath = undefined;
     return path ? loadPdf(path) : null;
   });
-  ipcMain.handle('progress:save', async (_event, id: unknown, value: unknown) => {
+  handle('progress:save', async (_event, id: unknown, value: unknown) => {
     const place = normalizeProgress(value);
     if (!currentPdf || id !== currentId || !place) return;
     const now = Date.now();
@@ -388,7 +407,7 @@ function registerIpc(): void {
     }
     scheduleProgressWrite();
   });
-  ipcMain.handle('notes:save', async (_event, value: unknown) => {
+  handle('notes:save', async (_event, value: unknown) => {
     const notes = parseNotes(value);
     if (!currentPdf || !notes) throw new Error('No open PDF or invalid notes');
     // Changes are stamped here by comparing with what was stored, so that the sidebar needs no
@@ -400,13 +419,13 @@ function registerIpc(): void {
       changedForStore();
     }
   });
-  ipcMain.handle('notes:export', async (_event, markdown: unknown) => {
+  handle('notes:export', async (_event, markdown: unknown) => {
     if (!currentPdf || typeof markdown !== 'string') return null;
     const path = `${currentPdf}.notes.md`;
     await writeFile(path, markdown);
     return path;
   });
-  ipcMain.handle('pdf:export', async (event, marks: unknown, notes: unknown) => {
+  handle('pdf:export', async (event, marks: unknown, notes: unknown) => {
     if (!currentPdf || typeof notes !== 'string') return null;
     // Always a new file: the original PDF is never modified.
     const { filePath } = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender)!, {
@@ -424,11 +443,11 @@ function registerIpc(): void {
     if (!currentDoc || id !== currentId) throw new Error('The document was closed');
     return currentDoc;
   };
-  ipcMain.handle('library:audio', (_event, id: unknown, text: unknown, audio: unknown) =>
+  handle('library:audio', (_event, id: unknown, text: unknown, audio: unknown) =>
     library.addAudio(libraryDoc(id), text, audio),
   );
   // An opened PDF is in the library at once, without audio, and synced from then on (ADR 11).
-  ipcMain.handle('library:add', async (_event, id: unknown, pages: unknown) => {
+  handle('library:add', async (_event, id: unknown, pages: unknown) => {
     const doc = libraryDoc(id);
     const known = await library.isPrepared(doc.docId);
     const manifest = await library.add(doc, pages);
@@ -440,7 +459,7 @@ function registerIpc(): void {
     }
     return { voiced: manifest.voiced, voices: manifest.voices };
   });
-  ipcMain.handle(
+  handle(
     'library:page',
     async (_event, id: unknown, page: unknown, pages: unknown, sentences: unknown, voices: unknown) => {
       await library.addPage(libraryDoc(id), page, pages, sentences, voices);
@@ -448,8 +467,8 @@ function registerIpc(): void {
       changedForStore();
     },
   );
-  ipcMain.handle('sync:status', () => sync.getStatus());
-  ipcMain.handle('sync:state', async (): Promise<SyncFacts> => {
+  handle('sync:status', () => sync.getStatus());
+  handle('sync:state', async (): Promise<SyncFacts> => {
     const [status, lan] = await Promise.all([sync.getStatus(), phones.status()]);
     return {
       store: status.backend !== 'none',
@@ -462,26 +481,26 @@ function registerIpc(): void {
       failed: storeSync.failed,
     };
   });
-  ipcMain.handle('sync:connect', (_event, backend: unknown, server: unknown) =>
+  handle('sync:connect', (_event, backend: unknown, server: unknown) =>
     sync.connect(backend, server).finally(syncChanged),
   );
-  ipcMain.handle('sync:cancel', () => sync.cancel());
-  ipcMain.handle('sync:disconnect', () => sync.disconnect().finally(syncChanged));
-  ipcMain.handle('sync:key', () => sync.key());
-  ipcMain.handle('sync:set-key', (_event, key: unknown) => sync.setKey(key));
-  ipcMain.handle('sync:set-auto', async (_event, on: unknown) => {
+  handle('sync:cancel', () => sync.cancel());
+  handle('sync:disconnect', () => sync.disconnect().finally(syncChanged));
+  handle('sync:key', () => sync.key());
+  handle('sync:set-key', (_event, key: unknown) => sync.setKey(key));
+  handle('sync:set-auto', async (_event, on: unknown) => {
     const status = await sync.setAuto(on);
     auto.setEnabled(status.auto);
     return status;
   });
-  ipcMain.handle('sync:documents', () => syncedDocuments());
-  ipcMain.handle('sync:set-document', async (_event, docId: unknown, synced: unknown) => {
+  handle('sync:documents', () => syncedDocuments());
+  handle('sync:set-document', async (_event, docId: unknown, synced: unknown) => {
     await sync.setStopped(docId, synced === false);
     return syncedDocuments();
   });
-  ipcMain.handle('sync:run', (_event, full: unknown) => runStoreSync(full === true));
-  ipcMain.handle('inbox:targets', () => sendTargets());
-  ipcMain.handle('inbox:send', async (_event, device: unknown) => {
+  handle('sync:run', (_event, full: unknown) => runStoreSync(full === true));
+  handle('inbox:targets', () => sendTargets());
+  handle('inbox:send', async (_event, device: unknown) => {
     const doc = currentDoc;
     const targets = await sendTargets();
     const target = targets.find((t) => t.device === device);
@@ -501,10 +520,10 @@ function registerIpc(): void {
     changedForStore();
     return target.name;
   });
-  ipcMain.handle('phone:status', () => phones.status());
-  ipcMain.handle('phone:enable', (_event, on: unknown) => phones.setEnabled(on).finally(syncChanged));
-  ipcMain.handle('phone:remove', (_event, device: unknown) => phones.remove(device).finally(syncChanged));
-  ipcMain.handle('phone:pairing', (_event, open: unknown) => {
+  handle('phone:status', () => phones.status());
+  handle('phone:enable', (_event, on: unknown) => phones.setEnabled(on).finally(syncChanged));
+  handle('phone:remove', (_event, device: unknown) => phones.remove(device).finally(syncChanged));
+  handle('phone:pairing', (_event, open: unknown) => {
     phones.setPairing(open);
     // A question nobody can see any more is a no.
     if (open !== true) {
@@ -512,36 +531,36 @@ function registerIpc(): void {
       pairAnswer = undefined;
     }
   });
-  ipcMain.handle('phone:answer', (_event, accept: unknown) => {
+  handle('phone:answer', (_event, accept: unknown) => {
     pairAnswer?.(accept === true);
     pairAnswer = undefined;
   });
-  ipcMain.handle('tts:voices', () => tts.voices());
+  handle('tts:voices', () => tts.voices());
   // Whatever the renderer sends is checked here: it is a sandboxed page, not trusted code.
   const request = (value: unknown): SynthRequest => {
     const parsed = parseSynthRequest(value);
     if (!parsed) throw new Error('Invalid speech request');
     return parsed;
   };
-  ipcMain.handle('tts:synthesize', (_event, value: unknown) => tts.synthesize(request(value)));
-  ipcMain.handle('tts:prerender', (_event, value: unknown) => tts.prerender(request(value)));
+  handle('tts:synthesize', (_event, value: unknown) => tts.synthesize(request(value)));
+  handle('tts:prerender', (_event, value: unknown) => tts.prerender(request(value)));
   // The Mac asks the user once; Windows has no such question for a desktop app.
-  ipcMain.handle('dictation:access', () =>
+  handle('dictation:access', () =>
     process.platform === 'darwin' ? systemPreferences.askForMediaAccess('microphone') : true,
   );
-  ipcMain.handle('dictation:transcribe', (_event, value: unknown) => {
+  handle('dictation:transcribe', (_event, value: unknown) => {
     const samples = parseDictation(value);
     if (!samples) throw new Error('Invalid recording');
     return tts.transcribe(samples);
   });
-  ipcMain.handle('settings:get', async (): Promise<Settings> => {
+  handle('settings:get', async (): Promise<Settings> => {
     try {
       return normalizeSettings(JSON.parse(await readFile(settingsPath(), 'utf8')));
     } catch {
       return normalizeSettings(null);
     }
   });
-  ipcMain.handle('settings:set', (_event, value: unknown) =>
+  handle('settings:set', (_event, value: unknown) =>
     writeFile(settingsPath(), JSON.stringify(normalizeSettings(value), null, 2)),
   );
 }
@@ -581,7 +600,17 @@ function createWindow(): void {
     minHeight: 360,
     show: false,
     autoHideMenuBar: true,
-    webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), sandbox: true },
+    webPreferences: {
+      preload: join(import.meta.dirname, '../preload/index.cjs'),
+      // Stated, though they are the defaults: the page is sandboxed, cut off from Node and from the
+      // preload's world, and never runs or loads anything insecure.
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      webviewTag: false,
+      allowRunningInsecureContent: false,
+    },
   });
   // The place in the document is written at most once a second, so the last change may still be waiting.
   window.on('close', writeProgress);
@@ -607,7 +636,7 @@ function createWindow(): void {
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (event) => event.preventDefault());
-  void window.loadURL(process.env.ELECTRON_RENDERER_URL ?? 'app://reader/index.html');
+  void window.loadURL(devUrl ?? 'app://reader/index.html');
 }
 
 // A standard scheme gives the renderer a real origin, so fetch and module workers behave as on the web.
@@ -616,6 +645,26 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 void app.whenReady().then(() => {
+  // Electron allows every permission a page asks for unless told otherwise. The window may ask for
+  // the microphone, to speak a comment, and for nothing else.
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
+    callback(
+      mayUseDevice(
+        permission,
+        details.requestingUrl,
+        (details as { mediaTypes?: string[] }).mediaTypes,
+        devUrl,
+      ),
+    ),
+  );
+  session.defaultSession.setPermissionCheckHandler((_contents, permission, origin, details) =>
+    mayUseDevice(
+      permission,
+      origin,
+      [(details as { mediaType?: string }).mediaType ?? ''].filter(Boolean),
+      devUrl,
+    ),
+  );
   protocol.handle('app', async (request) => {
     const path = normalize(join(RENDERER_DIR, decodeURIComponent(new URL(request.url).pathname)));
     if (!path.startsWith(RENDERER_DIR + sep)) return new Response('Forbidden', { status: 403 });

@@ -115,7 +115,7 @@ function parsePhones(value: unknown): PhonesFile {
 }
 
 const json = (response: ServerResponse, status: number, body: unknown): void => {
-  response.writeHead(status, { 'content-type': 'application/json' });
+  response.writeHead(status, { 'content-type': 'application/json', 'x-content-type-options': 'nosniff' });
   response.end(JSON.stringify(body));
 };
 
@@ -216,7 +216,7 @@ export class PhoneServer {
     const cert = selfSignedCertificate({
       spki: new Uint8Array(publicKey.export({ type: 'spki', format: 'der' })),
       serial: randomBytes(16),
-      name: `PDF Reader on ${this.options.name}`,
+      name: `Easy Reader on ${this.options.name}`,
       notBefore: now,
       notAfter: new Date(Date.UTC(now.getUTCFullYear() + 100, 0, 1)),
       sign: (tbs) => new Uint8Array(sign('sha256', tbs, { key: privateKey, dsaEncoding: 'der' })),
@@ -305,6 +305,11 @@ export class PhoneServer {
         else response.destroy();
       });
     });
+    // A request is a few kilobytes at most (a body is capped below): a client that dribbles one in
+    // is not a phone, and would otherwise hold a connection for Node's default five minutes.
+    server.headersTimeout = 10_000;
+    server.requestTimeout = 30_000;
+    server.maxConnections = 64;
     this.error = '';
     try {
       await new Promise<void>((resolve, reject) => {
@@ -436,6 +441,7 @@ export class PhoneServer {
       response.writeHead(200, {
         'content-type': CONTENT_TYPES[parsed.file.split('.').pop()!]!,
         'content-length': size,
+        'x-content-type-options': 'nosniff',
       });
       createReadStream(path).pipe(response);
       return;

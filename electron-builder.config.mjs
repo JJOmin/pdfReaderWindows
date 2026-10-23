@@ -1,3 +1,4 @@
+import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,12 +17,26 @@ const bundledModels = catalog
     filter: ['**/*', '!test_wavs/**'],
   }));
 
+// Fuses are switches in the Electron program itself, set when the app is packed (SECURITY.md). Without
+// these, any program on the computer can use the installed app as a Node interpreter, by an
+// environment variable or a command-line flag, with the app's own permissions and its signature.
+export const fuses = {
+  version: FuseVersion.V1,
+  [FuseV1Options.RunAsNode]: false,
+  [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
+  [FuseV1Options.EnableNodeCliInspectArguments]: false,
+  // The app is its app.asar and nothing else that a folder beside it could replace.
+  [FuseV1Options.OnlyLoadAppFromAsar]: true,
+  [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
+};
+
 /** @type {import('electron-builder').Configuration} */
 export default {
+  // The id stays: it names the app to the system, so that an update replaces the installed app.
   appId: 'io.github.jjomin.pdfreader',
-  productName: 'PDF Reader',
+  productName: 'Easy Reader',
   directories: { output: 'dist' },
-  artifactName: 'PDF-Reader-${version}-setup.${ext}',
+  artifactName: 'Easy-Reader-${version}-setup.${ext}',
   // Only the built app and package.json go into app.asar; production dependencies are added.
   files: ['out/**', 'package.json'],
   // The addon loads onnxruntime (.dll, .dylib) from its own folder, which an archive cannot provide.
@@ -42,7 +57,9 @@ export default {
   nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true },
   // Apple Silicon runs no unsigned code, and packaging changed the app, so it is signed again: the
   // addon's libraries one by one, since --deep does not reach loose files in Resources, then the app.
-  afterPack: (context) => {
+  afterPack: async (context) => {
+    // Before the signature: changing the program afterwards would break it.
+    await context.packager.addElectronFuses(context, fuses);
     if (context.electronPlatformName !== 'darwin') return;
     const app = join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
     const unpacked = join(app, 'Contents', 'Resources', 'app.asar.unpacked');
@@ -56,7 +73,7 @@ export default {
   // The hardened runtime is off: with an ad-hoc signature it would refuse the addon's libraries.
   mac: {
     target: [{ target: 'dmg', arch: ['arm64'] }],
-    artifactName: 'PDF-Reader-${version}-${arch}.${ext}',
+    artifactName: 'Easy-Reader-${version}-${arch}.${ext}',
     category: 'public.app-category.productivity',
     // Signed ad hoc in afterPack below, not by electron-builder: its signer reads every file to
     // find binaries, and an ONNX model crashed that check (isbinaryfile, "Invalid array length").
@@ -67,9 +84,9 @@ export default {
     fileAssociations: [{ ext: 'pdf', name: 'PDF document', role: 'Viewer', rank: 'Alternate' }],
     extendInfo: {
       NSMicrophoneUsageDescription:
-        'PDF Reader listens while you dictate a comment, and writes it out on this computer.',
+        'Easy Reader listens while you dictate a comment, and writes it out on this computer.',
       NSLocalNetworkUsageDescription:
-        'PDF Reader finds your paired phones on this network and sends them the documents you prepared.',
+        'Easy Reader finds your paired phones on this network and sends them the documents you prepared.',
     },
   },
 };

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>PDF Reader</title>
+    <title>Easy Reader</title>
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
@@ -104,7 +104,7 @@
         <article id="reading-text"></article>
       </div>
 
-      <aside id="sidebar">
+      <aside id="sidebar" aria-label="Notes and marks">
         <h2>Notes</h2>
         <textarea id="notes" placeholder="General notes on this document"></textarea>
         <div class="row">
@@ -138,9 +138,9 @@
       <button id="read-from-here">▶ Read from here</button>
     </div>
 
-    <dialog id="voices">
+    <dialog id="voices" aria-labelledby="voices-title">
       <form method="dialog">
-        <h2>Voices</h2>
+        <h2 id="voices-title">Voices</h2>
         <p>Each language has a main voice. Quotes and headings can use their own.</p>
         <div id="voice-rows"></div>
         <label id="stop-at-references-row"
@@ -158,9 +158,9 @@
       </form>
     </dialog>
 
-    <dialog id="phone">
+    <dialog id="phone" aria-labelledby="phone-title">
       <form method="dialog">
-        <h2>Phone sync</h2>
+        <h2 id="phone-title">Phone sync</h2>
         <p>
           Every PDF you open is synced with your phone at once, and its audio is made in the background, page
           by page, with the chosen voices; each page goes to the phone as soon as it is done. Prepare audio

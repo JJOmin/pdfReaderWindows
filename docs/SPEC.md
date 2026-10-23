@@ -214,6 +214,45 @@ built; the card is where the comment is made.`
 - **Checked.** `tests/e2e/notes-edit.spec.ts`, with Chromium's fake microphone playing the
   recogniser's German sample (it needs `--no-sandbox`, or the audio service cannot read the file).
 
+## Security, CI and accessibility (asked 2026-10-23)
+
+- **Security.** `SECURITY.md` lists what is guarded and the review's findings. In code: the sender's origin
+  is checked on every IPC call and every permission (`isTrustedOrigin`, `mayUseDevice` in
+  `src/shared/requests.ts`, 12 tests), the policy forbids embeds, frames, forms and a base address, the
+  window's safety settings are stated, and the phone server cuts slow requests. `tests/e2e/security.spec.ts`:
+  the policy is served, the window cannot be sent away, geolocation and notifications are refused.
+- **CI/CD.** `.github/workflows/`: `ci.yml` (check, build, `npm audit`, and the end-to-end tests that need no
+  voices, advisory until they have run green on GitHub's Linux), `security.yml` (dependency review, secret
+  scan, CodeQL on a public repository, weekly audit), `release.yml` (a `v*` tag builds the installer and the
+  Mac's disk image and attaches them). Dependabot for the packages and the actions. Features go on
+  `feature/...` branches and reach `master` by pull request. The files are valid YAML; they have not run,
+  because nothing is pushed.
+- **Accessibility.** The notes' controls are at least 24 by 24 pixels (WCAG 2.2, 2.5.8), the dialogs and the
+  sidebar are named, the listening pulse stops with "reduce motion", and in Windows' high contrast mode the
+  swatches keep their colour and a chosen control gets the system's highlight outline.
+  `tests/e2e/accessibility.spec.ts`: every control has a name, the sizes, the landmarks, the dialogs, the
+  on/off controls, the keyboard reaching the pencil. **Not possible yet:** marking text needs the pointer,
+  because a page's text cannot be selected by keyboard without caret browsing, which Electron does not offer;
+  a keyboard way (mark the sentence being read) would be a feature of its own.
+
+## Fuses, the name Easy Reader and automatic pull requests (asked 2026-10-23)
+
+- **Fuses.** The packaged program cannot be run as Node, debugged through `--inspect` or loaded from a folder
+  beside `app.asar`; set in `afterPack`, before the Mac signature (`electron-builder.config.mjs`), and kept by
+  `tests/unit/packaging.test.ts`. Checked on a packaged Mac build with `npx @electron/fuses read`; e2e tests
+  attach through the inspector and so run the unpackaged app only.
+- **Easy Reader.** Product name, window title, installer and disk image names, the microphone and network
+  descriptions, the certificate's name and the sync's User-Agent. The id (`io.github.jjomin.pdfreader`), the
+  package name, the data folder of the installed app (`PDF Reader`) and the Nextcloud folder (`PDF Reader`)
+  stay, so that nothing already installed or synced is lost. ADRs and older notes keep the name they were
+  written under.
+- **CI fix (after the first run).** Since Electron 44 `npm ci` no longer downloads the Electron program: it is
+  fetched on first use. The e2e job runs `node node_modules/electron/install.js` before it changes the sandbox
+  helper's permissions, and keeps `~/.cache/electron` between runs. Not yet seen green on GitHub; the job stays
+  advisory until it is.
+- **Pull requests.** `.github/workflows/auto-pr.yml`: a pushed `feature/...` branch gets a draft pull request to
+  `master` and the CI starts on it.
+
 ## Next: improvement round 1 (asked 2026-10-22)
 
 The owner asked for four groups in one improvement commit per repository, built step by step:

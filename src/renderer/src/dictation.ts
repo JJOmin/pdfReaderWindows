@@ -10,7 +10,7 @@ export interface Recording {
 /** Starts listening to the microphone. Rejects if there is none or the user does not allow it. */
 export async function startRecording(): Promise<Recording> {
   if (!(await window.api.dictationAccess())) {
-    throw new Error('The microphone is blocked. Allow PDF Reader to use it in the system settings.');
+    throw new Error('The microphone is blocked. Allow Easy Reader to use it in the system settings.');
   }
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
   const recorder = new MediaRecorder(stream);

@@ -357,6 +357,12 @@ textarea {
   cursor: default;
 }
 
+/* At least 24 by 24 CSS pixels, as WCAG 2.2 asks of a target (2.5.8). */
+#annotations .meta button {
+  min-width: 24px;
+  min-height: 24px;
+}
+
 #annotations .edit {
   display: grid;
   place-items: center;
@@ -393,7 +399,8 @@ textarea {
 }
 
 #annotations .tools [data-mark-kind] {
-  width: 26px;
+  width: 28px;
+  min-height: 24px;
   padding: 1px 0;
   font-weight: 600;
 }
@@ -417,11 +424,16 @@ textarea {
 }
 
 #annotations .tools [data-color] {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border-radius: 50%;
   background: var(--color);
+}
+
+#annotations .tools button {
+  min-width: 24px;
+  min-height: 24px;
 }
 
 #annotations .tools .mic {
@@ -623,8 +635,32 @@ dialog p {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #open-phone[data-state='syncing'] .sync-icon {
+  #open-phone[data-state='syncing'] .sync-icon,
+  #annotations .tools .mic[aria-pressed='true'] {
     animation: none;
+  }
+}
+
+/*
+ * Windows' high contrast mode and the like replace the colours. The swatches and the marks'
+ * badges are the colour they stand for, so they keep it, and what is chosen is shown by an
+ * outline in the system's own highlight colour.
+ */
+@media (forced-colors: active) {
+  #annotations .tools [data-color],
+  .mark-badge,
+  #selection-menu [data-color] {
+    forced-color-adjust: none;
+  }
+
+  #annotations .tools [aria-pressed='true'],
+  #selection-menu [aria-pressed='true'] {
+    outline: 3px solid Highlight;
+    outline-offset: 1px;
+  }
+
+  #annotations li.focused {
+    outline-color: Highlight;
   }
 }
 

@@ -25,3 +25,45 @@ export function parseSynthRequest(value: unknown): SynthRequest | undefined {
     speed: Math.min(MAX_SPEED, Math.max(MIN_SPEED, speed)),
   };
 }
+
+/** The origin of the app's own page, which `protocol.handle('app')` serves. */
+const APP_ORIGIN = 'app://reader';
+
+const originOf = (url: string): string | undefined => {
+  try {
+    const parsed = new URL(url);
+    // A user part or a look-alike host never makes the origin the app's.
+    // Built by hand: Node calls the origin of a custom scheme such as app: "null".
+    return parsed.username || parsed.password ? undefined : `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Whether a page or frame is the app's own window. Every call from the renderer and every
+ * permission it asks for is checked against this, so that a page that got into the window by any
+ * means other than the app's own files has no power over the main process.
+ */
+export function isTrustedOrigin(url: string, devUrl?: string): boolean {
+  const origin = originOf(url);
+  return (
+    origin !== undefined && (origin === APP_ORIGIN || (devUrl !== undefined && origin === originOf(devUrl)))
+  );
+}
+
+/** The only thing the window may ask the system for: the microphone, to speak a comment. */
+export function mayUseDevice(
+  permission: string,
+  url: string,
+  mediaTypes?: readonly string[],
+  devUrl?: string,
+): boolean {
+  return (
+    permission === 'media' &&
+    isTrustedOrigin(url, devUrl) &&
+    mediaTypes !== undefined &&
+    mediaTypes.length > 0 &&
+    mediaTypes.every((type) => type === 'audio')
+  );
+}

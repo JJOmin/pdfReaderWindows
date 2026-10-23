@@ -1,4 +1,4 @@
-# PDF Reader
+# Easy Reader
 
 A local PDF reader for paper reviews and note taking. It reads German and English text aloud with
 neural voices and marks the sentence and the word being spoken. You can highlight, comment and

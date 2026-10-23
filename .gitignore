@@ -13,3 +13,8 @@ coverage/
 graphify-out/
 .claude/settings.local.json
 *.log
+
+# Signing keys and keystores are never committed.
+*.jks
+*.keystore
+*.p12
