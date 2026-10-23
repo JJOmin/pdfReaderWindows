@@ -1,6 +1,6 @@
 {
   "name": "pdfreader",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Local PDF reader with annotations and read-aloud that highlights the spoken sentence and word",
   "license": "PolyForm-Noncommercial-1.0.0",
   "homepage": "https://github.com/JJOmin/pdfReaderWindows",
