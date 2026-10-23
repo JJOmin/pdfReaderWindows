@@ -104,6 +104,18 @@ export function reanchor(annotation: Annotation, pageRaw: string): Annotation | 
 export const markBadge = (a: Annotation): MarkBadge | undefined =>
   a.comment.trim() === '' ? undefined : a.via === 'speech' ? 'speech' : 'note';
 
+/**
+ * Sets a mark's comment. A comment dictated into an empty mark is a spoken one; speech added to
+ * typed words, or typing into a spoken comment to correct it, leaves it as it was; a comment that
+ * is emptied forgets how it was made, so what is typed next is typed.
+ */
+export function setComment(a: Annotation, comment: string, spoken = false): void {
+  const wasEmpty = a.comment.trim() === '';
+  a.comment = comment;
+  if (comment.trim() === '') delete a.via;
+  else if (spoken && wasEmpty) a.via = 'speech';
+}
+
 export const sortAnnotations = (annotations: Annotation[]): Annotation[] =>
   [...annotations].sort((a, b) => a.page - b.page || a.start - b.start);
 

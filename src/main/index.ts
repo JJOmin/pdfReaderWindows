@@ -1,10 +1,22 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, safeStorage, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  net,
+  protocol,
+  safeStorage,
+  shell,
+  systemPreferences,
+} from 'electron';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { basename, dirname, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { emptyNotes, parseNotes } from '../shared/notes';
+import { parseDictation } from '../shared/dictation';
 import { stampChanges } from '../shared/notes-merge';
 import { parseSynthRequest } from '../shared/requests';
 import {
@@ -513,6 +525,15 @@ function registerIpc(): void {
   };
   ipcMain.handle('tts:synthesize', (_event, value: unknown) => tts.synthesize(request(value)));
   ipcMain.handle('tts:prerender', (_event, value: unknown) => tts.prerender(request(value)));
+  // The Mac asks the user once; Windows has no such question for a desktop app.
+  ipcMain.handle('dictation:access', () =>
+    process.platform === 'darwin' ? systemPreferences.askForMediaAccess('microphone') : true,
+  );
+  ipcMain.handle('dictation:transcribe', (_event, value: unknown) => {
+    const samples = parseDictation(value);
+    if (!samples) throw new Error('Invalid recording');
+    return tts.transcribe(samples);
+  });
   ipcMain.handle('settings:get', async (): Promise<Settings> => {
     try {
       return normalizeSettings(JSON.parse(await readFile(settingsPath(), 'utf8')));

@@ -272,6 +272,10 @@ export interface Api {
   /** Asks where to save, then writes a copy of the PDF with the marks as standard annotations. */
   exportPdf(marks: ExportMark[], notes: string): Promise<string | null>;
   voices(): Promise<VoiceOption[]>;
+  /** Whether the microphone may be used; on the Mac the first call asks the user. */
+  dictationAccess(): Promise<boolean>;
+  /** Writes out a recording (16 kHz mono) with the speech recogniser. Nothing leaves the computer. */
+  transcribe(samples: Float32Array): Promise<string>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
   /** Remembers where the user is in the document that opening `id` gave. Stale ids are ignored. */

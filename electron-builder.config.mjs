@@ -66,6 +66,8 @@ export default {
     // Finder lists the app under Open With for PDFs; it does not become the default.
     fileAssociations: [{ ext: 'pdf', name: 'PDF document', role: 'Viewer', rank: 'Alternate' }],
     extendInfo: {
+      NSMicrophoneUsageDescription:
+        'PDF Reader listens while you dictate a comment, and writes it out on this computer.',
       NSLocalNetworkUsageDescription:
         'PDF Reader finds your paired phones on this network and sends them the documents you prepared.',
     },

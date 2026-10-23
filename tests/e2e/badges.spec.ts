@@ -115,6 +115,7 @@ test('a click on the icon shows the comment in the sidebar', async () => {
 });
 
 test('an icon comes with the first words typed into a comment and goes with the last', async () => {
+  await page.click('#annotations li[data-id="bare"] .edit');
   const box = page.locator('#annotations li[data-id="bare"] textarea');
   await box.fill('Now it has one.');
   await expect(page.locator('.mark-badge[data-id="bare"]')).toHaveAttribute('data-badge', 'note');

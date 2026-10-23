@@ -288,6 +288,9 @@ test('a phone’s marks are merged per mark and reach the open document', async 
   });
 
   // An edit in the window is stamped, and a phone's older edit of the same mark does not undo it.
+  // A card only shows until its pencil opens it.
+  await expect(page.locator('#annotations textarea')).toHaveJSProperty('readOnly', true);
+  await page.click('#annotations li .edit');
   await page.fill('#annotations textarea', 'desktop');
   await expect.poll(async () => (await read()).annotations[0]?.comment).toBe('desktop');
   const stamped = (await read()).annotations[0].updated as number;
@@ -312,7 +315,9 @@ test('a phone’s marks are merged per mark and reach the open document', async 
   await expect(page.locator('#annotations li')).toHaveCount(2);
 
   // Deleted in the window: it is a removal for the phones, and stays deleted if a phone still has it.
-  await page.locator('#annotations li', { hasText: 'Text prüft' }).locator('.delete').click();
+  const doomed = page.locator('#annotations li', { hasText: 'Text prüft' });
+  await doomed.locator('.edit').click();
+  await doomed.locator('.delete').click();
   await expect(page.locator('#annotations li')).toHaveCount(1);
   await expect.poll(async () => (await read()).removed?.[0]?.id).toBe(second.id);
   const again = await put({ version: 1, notes: '', annotations: [{ ...second, updated: 1500 }] });
@@ -343,7 +348,7 @@ test('a phone asks what changed since a time, and is told only of others’ chan
   expect((await changes(first.now)).docs).toEqual({});
 
   // A mark made in the window is.
-  await page.fill('#annotations textarea', 'changed on the desktop');
+  await page.locator('#annotations textarea:not([readonly])').fill('changed on the desktop');
   await expect.poll(async () => Object.keys((await changes(first.now)).docs)).toEqual([docId]);
 
   // Without a token nothing is told, and the dialog shows the phone as connected.

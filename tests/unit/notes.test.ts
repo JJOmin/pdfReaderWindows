@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { markBadge, parseNotes, reanchor, toMarkdown } from '../../src/shared/notes';
+import { markBadge, parseNotes, reanchor, setComment, toMarkdown } from '../../src/shared/notes';
 import type { Annotation, NotesFile } from '../../src/shared/types';
 
 const annotation = (over: Partial<Annotation> = {}): Annotation => ({
@@ -137,5 +137,41 @@ describe('toMarkdown', () => {
         '',
       ].join('\n'),
     );
+  });
+});
+
+describe('setComment', () => {
+  it('writes the text of a typed comment and leaves `via` out', () => {
+    const a = annotation();
+    setComment(a, 'Typed.');
+    expect(a.comment).toBe('Typed.');
+    expect(a).not.toHaveProperty('via');
+  });
+
+  it('marks a dictated comment on an empty mark as spoken', () => {
+    const a = annotation();
+    setComment(a, 'Said aloud.', true);
+    expect(a.via).toBe('speech');
+    expect(markBadge(a)).toBe('speech');
+  });
+
+  it('keeps a typed comment typed when speech is added to it', () => {
+    const a = annotation({ comment: 'Typed.' });
+    setComment(a, 'Typed. Said aloud.', true);
+    expect(a).not.toHaveProperty('via');
+  });
+
+  it('keeps a spoken comment spoken while it is corrected by hand', () => {
+    const a = annotation({ comment: 'Said alound.', via: 'speech' });
+    setComment(a, 'Said aloud.');
+    expect(a.via).toBe('speech');
+  });
+
+  it('forgets how a comment was made when it is emptied', () => {
+    const a = annotation({ comment: 'Said aloud.', via: 'speech' });
+    setComment(a, '  ');
+    expect(a).not.toHaveProperty('via');
+    setComment(a, 'Now typed.');
+    expect(markBadge(a)).toBe('note');
   });
 });

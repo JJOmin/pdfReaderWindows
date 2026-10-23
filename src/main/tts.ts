@@ -4,6 +4,7 @@ import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import catalog from '../../models.json';
 import { alignWords, estimateTimings } from '../shared/align';
+import { DICTATION_RATE, padSilence } from '../shared/dictation';
 import { isRenderedVoice, XTTS_MODEL } from '../shared/render-cache';
 import type { Lang, SynthRequest, SynthResult, VoiceOption } from '../shared/types';
 import { Xtts } from './xtts';
@@ -223,6 +224,20 @@ export class Tts {
       generationConfig: new sherpa.GenerationConfig(generation),
     });
     return this.align(audio, words);
+  }
+
+  /** Writes out what was said: 16 kHz mono samples to text, in the language the recogniser hears. */
+  transcribe(samples: Float32Array): Promise<string> {
+    const result = this.alignment.then(async () => {
+      const recogniser = await this.loadAligner();
+      if (!recogniser) throw new Error('The speech recogniser is not installed. Run: npm run models');
+      const stream = recogniser.createStream();
+      stream.acceptWaveform({ samples: padSilence(samples), sampleRate: DICTATION_RATE });
+      await recogniser.decodeAsync(stream);
+      return (recogniser.getResult(stream) as { text: string }).text.trim();
+    });
+    this.alignment = result.catch(() => undefined);
+    return result;
   }
 
   private align(audio: Wave, words: string[]): Promise<SynthResult> {

@@ -24,7 +24,8 @@ body {
   margin: 0;
   height: 100vh;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* Toolbar, the offer to continue (no height while hidden), the document, the status bar. */
+  grid-template-rows: auto auto 1fr auto;
   /* As wide as the window and never wider: the toolbar's row would otherwise stretch it. */
   grid-template-columns: minmax(0, 1fr);
   background: var(--bg);
@@ -72,6 +73,7 @@ button[aria-pressed='true'] {
  * in the order of each item's data-overflow (main.ts, fitToolbar).
  */
 #toolbar {
+  grid-row: 1;
   position: relative;
   z-index: 20;
   display: flex;
@@ -166,6 +168,7 @@ button[aria-pressed='true'] {
 }
 
 main {
+  grid-row: 3;
   position: relative;
   display: flex;
   min-height: 0;
@@ -320,6 +323,132 @@ textarea {
   overflow: hidden;
 }
 
+/* Whether the comment was written or spoken, next to the page. */
+#annotations .meta {
+  align-items: center;
+  gap: 6px;
+}
+
+#annotations .meta .how {
+  display: inline-grid;
+  margin-right: auto;
+}
+
+#annotations .how svg,
+#annotations .mic svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Closed, a card only shows: no pencil work, no tools, no Delete. */
+#annotations li[data-editing='false'] .tools,
+#annotations li[data-editing='false'] .delete {
+  display: none;
+}
+
+#annotations li[data-editing='false'] textarea {
+  resize: none;
+  border-color: transparent;
+  cursor: default;
+}
+
+#annotations .edit {
+  display: grid;
+  place-items: center;
+  padding: 2px 4px;
+  border: none;
+  color: var(--muted);
+}
+
+#annotations .edit:hover,
+#annotations .edit[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+#annotations .edit svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The same three kinds and four colours as the selection menu, to change a mark afterwards. */
+#annotations .tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#annotations .tools .group {
+  display: flex;
+  gap: 4px;
+}
+
+#annotations .tools [data-mark-kind] {
+  width: 26px;
+  padding: 1px 0;
+  font-weight: 600;
+}
+
+#annotations .tools [aria-pressed='true'] {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+#annotations .tools [data-mark-kind='highlight'] span {
+  background: var(--color);
+  color: #1f1f1f;
+  padding: 0 3px;
+}
+
+#annotations .tools [data-mark-kind='underline'] span {
+  text-decoration: underline var(--color) 2px;
+}
+
+#annotations .tools [data-mark-kind='strike'] span {
+  text-decoration: line-through var(--color) 2px;
+}
+
+#annotations .tools [data-color] {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--color);
+}
+
+#annotations .tools .mic {
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  padding: 3px 6px;
+}
+
+#annotations .tools .mic[aria-pressed='true'] {
+  background: #e03131;
+  border-color: #e03131;
+  color: #fff;
+  animation: listening 1.2s ease-in-out infinite;
+}
+
+#annotations .tools .mic:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@keyframes listening {
+  50% {
+    opacity: 0.6;
+  }
+}
+
 #annotations .delete {
   border: none;
   padding: 0 4px;
@@ -414,6 +543,7 @@ dialog p {
 }
 
 #statusbar {
+  grid-row: 4;
   display: flex;
   gap: 16px;
   padding: 3px 12px;
@@ -890,6 +1020,7 @@ details.info > div p {
 }
 
 #place-offer {
+  grid-row: 2;
   display: flex;
   gap: 8px;
   align-items: center;

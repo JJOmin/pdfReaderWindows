@@ -6,7 +6,10 @@ const SVG = 'http://www.w3.org/2000/svg';
 const SIZE = 14;
 
 /** The pictograms, drawn as strokes so that they take the badge's colour. */
-const ICONS: Record<MarkBadge, string[]> = {
+const ICONS: Record<MarkBadge | 'edit' | 'done', string[]> = {
+  // The pencil that opens a card for changes, and the check mark that closes it.
+  edit: ['M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z'],
+  done: ['M20 6 9 17l-5-5'],
   note: [
     'M6 4h12a2 2 0 0 1 2 2v7l-6 6H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
     'M14 19v-4a1 1 0 0 1 1-1h5',
@@ -19,7 +22,7 @@ const TITLES: Record<MarkBadge, string> = {
   speech: 'Spoken comment: show it in the sidebar',
 };
 
-function icon(kind: MarkBadge): SVGSVGElement {
+export function icon(kind: MarkBadge | 'edit' | 'done'): SVGSVGElement {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');

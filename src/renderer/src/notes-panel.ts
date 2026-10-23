@@ -1,5 +1,6 @@
 import { readableText } from '../../shared/layout';
-import { emptyNotes, markBadge, reanchor, sortAnnotations, toMarkdown } from '../../shared/notes';
+import { joinHeard } from '../../shared/dictation';
+import { emptyNotes, markBadge, reanchor, setComment, sortAnnotations, toMarkdown } from '../../shared/notes';
 import {
   HIGHLIGHT_COLORS,
   MARK_KINDS,
@@ -11,7 +12,8 @@ import {
   type RawRange,
 } from '../../shared/types';
 import { paint } from './highlights';
-import { paintBadges } from './mark-badges';
+import { startRecording, type Recording } from './dictation';
+import { icon, paintBadges } from './mark-badges';
 import type { Pdf } from './pdf';
 import type { Span, TextView } from './view';
 
@@ -32,6 +34,10 @@ export class NotesPanel {
   /** The kind of mark the colour buttons make. Stays as chosen until changed. */
   private kind: MarkKind = 'highlight';
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The cards that are open for changes. A card shows only, until its pencil is clicked. */
+  private readonly editing = new Set<string>();
+  /** The comment being dictated, and whose it is; one at a time, as there is one microphone. */
+  private recording: { id: string; recording: Recording } | undefined;
   private readonly menu = $('#selection-menu');
   private readonly list = $<HTMLOListElement>('#annotations');
   private readonly notes = $<HTMLTextAreaElement>('#notes');
@@ -170,6 +176,8 @@ export class NotesPanel {
       created: new Date().toISOString(),
     };
     this.file.annotations.push(annotation);
+    // A mark that was just made is for its comment: open to type or speak it.
+    this.editing.add(annotation.id);
     this.changed();
     this.focus(annotation.id);
   }
@@ -204,9 +212,15 @@ export class NotesPanel {
       remove.title = 'Delete mark';
       remove.addEventListener('click', () => {
         this.file.annotations = this.file.annotations.filter((a) => a !== annotation);
+        this.editing.delete(annotation.id);
         this.changed();
       });
-      meta.append(`Page ${annotation.page}`, remove);
+      const how = document.createElement('span');
+      how.className = 'how';
+      this.showHow(how, annotation);
+      const edit = document.createElement('button');
+      edit.className = 'edit';
+      meta.append(`Page ${annotation.page}`, how, edit, remove);
 
       const quote = document.createElement('blockquote');
       quote.textContent = annotation.quote;
@@ -221,13 +235,32 @@ export class NotesPanel {
       comment.value = annotation.comment;
       comment.addEventListener('input', () => {
         const before = markBadge(annotation);
-        annotation.comment = comment.value;
+        setComment(annotation, comment.value);
         // The icon appears with the first words and goes with the last.
-        if (markBadge(annotation) !== before) this.paint();
+        if (markBadge(annotation) !== before) {
+          this.showHow(how, annotation);
+          this.paint();
+        }
         this.save();
       });
 
-      item.append(meta, quote, comment);
+      item.append(meta, quote, this.styleTools(item, annotation), comment);
+      // Closed, the comment can be read and copied but not changed; the tools and Delete are hidden.
+      const showEditing = (): void => {
+        const open = this.editing.has(annotation.id);
+        item.dataset.editing = String(open);
+        comment.readOnly = !open;
+        comment.placeholder = open ? 'Comment' : 'No comment';
+        edit.replaceChildren(icon(open ? 'done' : 'edit'));
+        edit.title = open ? 'Done' : 'Edit the comment and the mark';
+        edit.setAttribute('aria-label', edit.title);
+        edit.setAttribute('aria-pressed', String(open));
+      };
+      edit.addEventListener('click', () => {
+        if (!this.editing.delete(annotation.id)) this.editing.add(annotation.id);
+        showEditing();
+      });
+      showEditing();
       return item;
     });
     if (items.length === 0) {
@@ -237,6 +270,121 @@ export class NotesPanel {
       items.push(empty);
     }
     this.list.replaceChildren(...items);
+  }
+
+  /** The icon on a card that says whether its comment was typed or spoken; none without a comment. */
+  private showHow(how: HTMLElement, annotation: Annotation): void {
+    const badge = markBadge(annotation);
+    how.replaceChildren(...(badge ? [icon(badge)] : []));
+    how.dataset.how = badge ?? '';
+    how.title = badge === 'speech' ? 'Spoken comment' : badge === 'note' ? 'Written comment' : '';
+  }
+
+  /** The buttons on a card that change its kind and colour, and the microphone for its comment. */
+  private styleTools(item: HTMLElement, annotation: Annotation): HTMLElement {
+    const tools = document.createElement('div');
+    tools.className = 'tools';
+    const kinds = document.createElement('span');
+    kinds.className = 'group';
+    for (const kind of MARK_KINDS) {
+      const button = document.createElement('button');
+      button.dataset.markKind = kind;
+      button.title = { highlight: 'Highlight', underline: 'Underline', strike: 'Strike through' }[kind];
+      button.setAttribute('aria-label', button.title);
+      button.setAttribute('aria-pressed', String(annotation.kind === kind));
+      button.append(document.createElement('span'));
+      button.firstElementChild!.textContent = 'A';
+      kinds.append(button);
+    }
+    const colors = document.createElement('span');
+    colors.className = 'group';
+    for (const color of HIGHLIGHT_COLORS) {
+      const button = document.createElement('button');
+      button.dataset.color = color;
+      button.title = color[0]!.toUpperCase() + color.slice(1);
+      button.setAttribute('aria-label', button.title);
+      button.setAttribute('aria-pressed', String(annotation.color === color));
+      colors.append(button);
+    }
+    // Restyling changes the card where it stands: rebuilding the list would take the typing away.
+    tools.addEventListener('click', (event) => {
+      const button = (event.target as Element).closest<HTMLElement>('[data-mark-kind], [data-color]');
+      if (!button) return;
+      if (button.dataset.markKind) annotation.kind = button.dataset.markKind as MarkKind;
+      else annotation.color = button.dataset.color as HighlightColor;
+      item.dataset.kind = annotation.kind;
+      item.dataset.color = annotation.color;
+      for (const other of tools.querySelectorAll<HTMLElement>('[data-mark-kind], [data-color]')) {
+        other.setAttribute(
+          'aria-pressed',
+          String(other.dataset.markKind === annotation.kind || other.dataset.color === annotation.color),
+        );
+      }
+      this.paint();
+      this.save(true);
+    });
+
+    const mic = document.createElement('button');
+    mic.className = 'mic';
+    mic.title = 'Speak a comment';
+    mic.setAttribute('aria-label', 'Speak a comment');
+    mic.setAttribute('aria-pressed', String(this.recording?.id === annotation.id));
+    mic.append(icon('speech'));
+    mic.addEventListener('click', () => void this.dictate(annotation.id, mic));
+    tools.append(kinds, colors, mic);
+    return tools;
+  }
+
+  /** The microphone on a card: first click listens, second click writes out what was said. */
+  private async dictate(id: string, mic: HTMLButtonElement): Promise<void> {
+    if (this.recording) {
+      this.recording.recording.stop();
+      return;
+    }
+    try {
+      const recording = await startRecording();
+      this.recording = { id, recording };
+      this.listening(true);
+      this.actions.status('Listening. Click the microphone again when you are done.');
+      const samples = await recording.done;
+      this.recording = undefined;
+      this.listening(false);
+      mic.disabled = true;
+      this.actions.status('Writing out what you said…');
+      const heard = await window.api.transcribe(samples);
+      // The list may have been rebuilt, or the mark deleted, while the model was working.
+      const annotation = this.file.annotations.find((a) => a.id === id);
+      if (!annotation) return;
+      if (heard === '') {
+        this.actions.status('Nothing was heard.', true);
+        return;
+      }
+      const before = markBadge(annotation);
+      setComment(annotation, joinHeard(annotation.comment, heard), true);
+      const item = this.list.querySelector<HTMLElement>(`[data-id="${id}"]`);
+      const field = item?.querySelector('textarea');
+      if (field) field.value = annotation.comment;
+      const how = item?.querySelector<HTMLElement>('.how');
+      if (how) this.showHow(how, annotation);
+      if (markBadge(annotation) !== before) this.paint();
+      this.save(true);
+      this.actions.status('');
+    } catch (error) {
+      this.recording = undefined;
+      this.listening(false);
+      this.actions.status(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      mic.disabled = false;
+    }
+  }
+
+  /** Shows which card is listening, and keeps the other microphones from taking over. */
+  private listening(on: boolean): void {
+    for (const mic of this.list.querySelectorAll<HTMLButtonElement>('.mic')) {
+      const own = on && mic.closest('li')?.dataset.id === this.recording?.id;
+      mic.setAttribute('aria-pressed', String(own));
+      mic.disabled = on && !own;
+    }
   }
 
   /** Writes the notes file next to the PDF, at once or after a pause in typing. */
