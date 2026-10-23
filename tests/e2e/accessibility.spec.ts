@@ -45,7 +45,8 @@ test.beforeAll(async () => {
   delete env.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({ args: ['.', pdfPath, '--mute-audio'], env: env as Record<string, string> });
   page = await app.firstWindow();
-  await expect(page.locator('.textLayer span').first()).toBeAttached();
+  // The first launch on a cold machine loads the PDF engine: more than the default five seconds.
+  await expect(page.locator('.textLayer span').first()).toBeAttached({ timeout: 30_000 });
   await page.evaluate(() => (document.querySelector<HTMLElement>('#sidebar')!.hidden = false));
   // A card open for changes shows every control it has.
   await page.click('#annotations li .edit');
