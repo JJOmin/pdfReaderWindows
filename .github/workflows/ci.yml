@@ -1,0 +1,90 @@
+# Runs on every pull request and on every push to master: the same checks as `npm run check`, a build,
+# and the end-to-end tests that need no speech voices. Feature branches reach master only through a
+# pull request that passes these.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a branch stops the run for the older one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Type check, lint, format, unit tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+
+  audit:
+    name: Known vulnerabilities in the packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # Production packages end up in the installer, so a high one there stops the build; the build
+      # tools are checked as well, and reported.
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high
+
+  e2e:
+    name: End-to-end tests (without speech voices)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Advisory until it has run green on GitHub's machines (a Linux display, fonts and sandbox that
+    # these tests were not written on). Remove this line to make it a required check.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Only the speech recogniser (103 MB) is needed, for the spoken-comment test.
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: models-aligner-${{ hashFiles('models.json') }}
+      - run: node scripts/fetch-models.mjs aligner
+      - name: Let Electron start in a sandbox
+        run: |
+          sudo chown root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: npx electron-vite build
+      - name: Run the tests
+        run: >-
+          xvfb-run --auto-servernum npx playwright test
+          tests/e2e/security.spec.ts
+          tests/e2e/accessibility.spec.ts
+          tests/e2e/badges.spec.ts
+          tests/e2e/notes-edit.spec.ts
+          tests/e2e/ui.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-results
+          path: test-results
+          retention-days: 7
