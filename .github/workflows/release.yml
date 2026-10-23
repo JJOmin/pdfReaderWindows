@@ -1,7 +1,11 @@
-# Builds the installers (Windows, and the Mac's .dmg) and attaches them to a GitHub release, when a
-# version tag is pushed (git tag v1.2.3 && git push origin v1.2.3). The speech voices that the app
-# carries are downloaded for the build (about 700 MB, cached). Nothing is signed with a purchased
-# certificate (ADR 9): the Mac app is ad hoc signed, and Windows will ask "unknown publisher".
+# Builds the installers (Windows, and the Mac's .dmg) and publishes them as a GitHub release, when a version
+# tag is pushed:  git tag v0.1.0-alpha.3 && git push origin v0.1.0-alpha.3
+# The tag must name the version in package.json. A tag with a hyphen (-alpha.3, -beta.1) is published as a
+# pre-release. Run by hand (Actions, Release, Run workflow) it builds the installers and keeps them as
+# downloadable artifacts, without publishing: a rehearsal.
+# The speech voices that the app carries are downloaded for the build (about 700 MB, cached). Nothing is
+# signed with a purchased certificate (ADR 9): the Mac app is ad hoc signed, and Windows will ask
+# "unknown publisher".
 name: Release
 
 on:
@@ -10,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   installers:
@@ -35,21 +39,51 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: The tag names the version in package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::The tag is ${GITHUB_REF_NAME} but package.json says ${version}. Change one of them."
+            exit 1
+          fi
       - run: npm ci
-      - run: npm run check
+      # The unit tests ran on the commit in the CI (a tag is made on master, after its pull request passed);
+      # they are not run again on each system here, where line endings alone can fail the format check.
       - uses: actions/cache@v4
         with:
           path: models
           key: models-recommended-${{ matrix.os }}-${{ hashFiles('models.json') }}
       - run: npm run models
-      - run: npm run ${{ matrix.script }}
+      # No --publish: electron-builder must not publish by itself, the job below does.
+      - run: npm run ${{ matrix.script }} -- --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: ${{ matrix.files }}
-      - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: installers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          files: ${{ matrix.files }}
+          path: installers
+          merge-multiple: true
+      - run: ls -la installers
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          name: Easy Reader ${{ github.ref_name }}
+          body_path: .github/release-notes.md
           generate_release_notes: true
+          # A version with a hyphen in it is an alpha or a beta.
+          prerelease: ${{ contains(github.ref_name, '-') }}
