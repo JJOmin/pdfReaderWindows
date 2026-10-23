@@ -68,6 +68,14 @@ jobs:
           path: models
           key: models-aligner-${{ hashFiles('models.json') }}
       - run: node scripts/fetch-models.mjs aligner
+      # Since Electron 44 `npm ci` no longer downloads the program; it is fetched on first use, which
+      # would be in the middle of the first test. Fetched here, and kept between runs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Download Electron
+        run: node node_modules/electron/install.js
       - name: Let Electron start in a sandbox
         run: |
           sudo chown root node_modules/electron/dist/chrome-sandbox

@@ -246,6 +246,10 @@ built; the card is where the comment is made.`
   package name, the data folder of the installed app (`PDF Reader`) and the Nextcloud folder (`PDF Reader`)
   stay, so that nothing already installed or synced is lost. ADRs and older notes keep the name they were
   written under.
+- **CI fix (after the first run).** Since Electron 44 `npm ci` no longer downloads the Electron program: it is
+  fetched on first use. The e2e job runs `node node_modules/electron/install.js` before it changes the sandbox
+  helper's permissions, and keeps `~/.cache/electron` between runs. Not yet seen green on GitHub; the job stays
+  advisory until it is.
 - **Pull requests.** `.github/workflows/auto-pr.yml`: a pushed `feature/...` branch gets a draft pull request to
   `master` and the CI starts on it.
 
