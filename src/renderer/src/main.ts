@@ -290,7 +290,7 @@ async function show(opened: OpenedPdf | null): Promise<void> {
     return;
   }
   offerPlace(opened.offer);
-  document.title = `${opened.name} – PDF Reader`;
+  document.title = `${opened.name} – Easy Reader`;
   $('#title').textContent = opened.name;
   $('#title').title = opened.name;
   $('#empty').hidden = true;

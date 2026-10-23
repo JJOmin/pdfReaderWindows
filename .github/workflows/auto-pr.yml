@@ -1,0 +1,40 @@
+# A branch named feature/... that is pushed gets a draft pull request to master, if it has none, and the
+# CI runs on it. "Ready for review" is the owner's click when the feature is finished; it can be merged
+# once the checks are green. Needs: Settings, Actions, General, Workflow permissions, and "Allow GitHub
+# Actions to create and approve pull requests" switched on.
+name: Open a pull request
+
+on:
+  push:
+    branches: ['feature/**']
+
+permissions:
+  contents: read
+  pull-requests: write
+  # To start the CI: a pull request that this workflow opens does not start workflows by itself.
+  actions: write
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open a draft pull request if there is none
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          BASE: master
+        run: |
+          open=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq 'length')
+          if [ "$open" != "0" ]; then
+            echo "There is a pull request for $BRANCH already."
+            exit 0
+          fi
+          title=$(git log -1 --format=%s)
+          if ! gh pr create --base "$BASE" --head "$BRANCH" --draft --title "$title" \
+              --body-file .github/pull_request_template.md; then
+            echo "::error::Could not open the pull request. Switch on Settings, Actions, General, Workflow permissions, 'Allow GitHub Actions to create and approve pull requests'."
+            exit 1
+          fi
+          # The checks, on the branch the pull request is made from.
+          gh workflow run ci.yml --ref "$BRANCH"

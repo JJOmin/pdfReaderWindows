@@ -1,10 +1,12 @@
 import { assertPath, type RemoteEntry, type SyncStore } from '../../shared/sync-store';
 
 /** The folder in the user's files that holds everything this app syncs. */
+// Keeps the app's old name, "PDF Reader", here and on the phone: renaming it would leave every
+// synced document behind in the old folder.
 export const NEXTCLOUD_FOLDER = 'PDF Reader';
 const TIMEOUT_MS = 5 * 60_000;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
-const USER_AGENT = 'PDF Reader';
+const USER_AGENT = 'Easy Reader';
 
 const withSlash = (url: string): string => (url.endsWith('/') ? url : `${url}/`);
 

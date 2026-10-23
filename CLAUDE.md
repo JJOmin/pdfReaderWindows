@@ -1,4 +1,4 @@
-# PDF Reader
+# Easy Reader (desktop)
 
 A local Electron app that shows PDFs, lets the user highlight and comment, and reads the text
 aloud while highlighting the spoken sentence and word. German and English. No cloud: the text and
@@ -72,8 +72,9 @@ second coordinate system, and do not add a feature to one view only.
 - **Branches and CI.** A feature is made on a `feature/<name>` branch, never on `master`; it reaches
   `master` through a pull request whose CI (`.github/workflows/ci.yml`: `npm run check`, a build,
   `npm audit`, and the end-to-end tests that need no voices) is green. Check `git branch --show-current`
-  before the first edit of a feature. Do not commit or push unless asked. A release is a `v*` tag, built
-  by `release.yml`.
+  before the first edit of a feature. Do not commit or push unless asked. When the owner pushes a
+  `feature/...` branch, `auto-pr.yml` opens a draft pull request to `master` and starts the CI; "Ready for
+  review" is the owner's click. A release is a `v*` tag, built by `release.yml`.
 - **Security and accessibility are part of "done".** `SECURITY.md` has what is guarded and why: every
   IPC handler checks the sender's origin, the window may ask for the microphone and nothing else, the
   policy forbids embeds, forms and a base address. Do not loosen them. A new control has a name, is at

@@ -216,7 +216,7 @@ export class PhoneServer {
     const cert = selfSignedCertificate({
       spki: new Uint8Array(publicKey.export({ type: 'spki', format: 'der' })),
       serial: randomBytes(16),
-      name: `PDF Reader on ${this.options.name}`,
+      name: `Easy Reader on ${this.options.name}`,
       notBefore: now,
       notAfter: new Date(Date.UTC(now.getUTCFullYear() + 100, 0, 1)),
       sign: (tbs) => new Uint8Array(sign('sha256', tbs, { key: privateKey, dsaEncoding: 'der' })),

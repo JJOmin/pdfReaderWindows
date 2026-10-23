@@ -71,6 +71,10 @@ const devUrl = process.env.ELECTRON_RENDERER_URL;
 const computerName = process.env.PDFREADER_DEVICE_NAME || hostname();
 // PDFREADER_USER_DATA lets tests run against a throwaway profile.
 if (process.env.PDFREADER_USER_DATA) app.setPath('userData', process.env.PDFREADER_USER_DATA);
+// The installed app keeps its data where it always was, in the folder named for the app's old name,
+// "PDF Reader" (ADR 9): the settings, the phone library and the paired phones stay when the product
+// is renamed. A development run has its own folder, named for the package.
+else if (app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'PDF Reader'));
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json');
 const { modelsDir, helperScript } = resourcePaths({
   packaged: app.isPackaged,
