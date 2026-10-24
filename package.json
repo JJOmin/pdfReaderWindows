@@ -20,7 +20,7 @@
     "models": "node scripts/fetch-models.mjs",
     "gpu-voice": "node scripts/setup-gpu-voice.mjs",
     "fixtures": "electron scripts/make-fixtures.mjs",
-    "icon": "electron scripts/make-icon.mjs",
+    "icon": "electron scripts/make-icon.mjs icon && electron scripts/make-icon.mjs icon-win",
     "dump": "node scripts/dump-text.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",

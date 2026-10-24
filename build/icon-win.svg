@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f8ef7" />
+      <stop offset="1" stop-color="#2353c4" />
+    </linearGradient>
+  </defs>
+  <!-- Windows has no icon grid and draws no shadow: the rounded square fills the canvas, and the
+       drawing of icon.svg is scaled with it (824 px become 1000). -->
+  <rect x="12" y="12" width="1000" height="1000" rx="225" fill="url(#bg)" />
+  <g transform="translate(512 512) scale(1.2136) translate(-512 -512)">
+    <path d="M274 230H510L610 330V770a24 24 0 0 1-24 24H274a24 24 0 0 1-24-24V254a24 24 0 0 1 24-24Z" fill="#fff" />
+    <path d="M510 230V306a24 24 0 0 0 24 24H610Z" fill="#c9d8f7" />
+    <!-- Text: a highlighted line, and the word being spoken. -->
+    <rect x="300" y="390" width="220" height="24" rx="12" fill="#b9c3d6" />
+    <rect x="288" y="446" width="290" height="48" rx="12" fill="#ffd400" />
+    <rect x="300" y="458" width="262" height="24" rx="12" fill="#5b6780" />
+    <rect x="300" y="526" width="96" height="24" rx="12" fill="#2f6fed" />
+    <rect x="410" y="526" width="130" height="24" rx="12" fill="#b9c3d6" />
+    <rect x="300" y="594" width="240" height="24" rx="12" fill="#b9c3d6" />
+    <rect x="300" y="662" width="180" height="24" rx="12" fill="#b9c3d6" />
+    <!-- Sound waves. -->
+    <g fill="none" stroke="#fff" stroke-width="30" stroke-linecap="round">
+      <path d="M675 466A70 70 0 0 1 675 574" />
+      <path d="M710 424A125 125 0 0 1 710 616" />
+      <path d="M746 382A180 180 0 0 1 746 658" />
+    </g>
+  </g>
+</svg>
