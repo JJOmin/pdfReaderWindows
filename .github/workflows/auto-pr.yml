@@ -18,7 +18,7 @@ jobs:
   open:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Open a draft pull request if there is none
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

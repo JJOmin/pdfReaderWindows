@@ -23,10 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # The Node line Electron carries; check-latest takes its newest patch, not an older cached one
+          # with a known hole (CVE-2026-111497 was fixed in 24.22.1).
+          node-version: 24
+          check-latest: true
           cache: npm
       - run: npm ci
       - run: npm run check
@@ -37,10 +40,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # The Node line Electron carries; check-latest takes its newest patch, not an older cached one
+          # with a known hole (CVE-2026-111497 was fixed in 24.22.1).
+          node-version: 24
+          check-latest: true
           cache: npm
       # Production packages end up in the installer, so a high one there stops the build; the build
       # tools are checked as well, and reported.
@@ -56,21 +62,24 @@ jobs:
     # these tests were not written on). Remove this line to make it a required check.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # The Node line Electron carries; check-latest takes its newest patch, not an older cached one
+          # with a known hole (CVE-2026-111497 was fixed in 24.22.1).
+          node-version: 24
+          check-latest: true
           cache: npm
       - run: npm ci
       # Only the speech recogniser (103 MB) is needed, for the spoken-comment test.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: models
           key: models-aligner-${{ hashFiles('models.json') }}
       - run: node scripts/fetch-models.mjs aligner
       # Since Electron 44 `npm ci` no longer downloads the program; it is fetched on first use, which
       # would be in the middle of the first test. Fetched here, and kept between runs.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/electron
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -90,7 +99,7 @@ jobs:
           tests/e2e/badges.spec.ts
           tests/e2e/notes-edit.spec.ts
           tests/e2e/ui.spec.ts
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: e2e-results
