@@ -81,7 +81,8 @@ test.afterAll(async () => {
 });
 
 test('shows a note over a typed comment and a microphone over a spoken one, and nothing else', async () => {
-  await expect(page.locator('.textLayer span').first()).toBeAttached();
+  // The first launch on a cold machine loads the PDF engine: more than the default five seconds.
+  await expect(page.locator('.textLayer span').first()).toBeAttached({ timeout: 30_000 });
   await expect(page.locator('.mark-badge')).toHaveCount(2);
   await expect(page.locator('.mark-badge[data-id="typed"]')).toHaveAttribute('data-badge', 'note');
   await expect(page.locator('.mark-badge[data-id="spoken"]')).toHaveAttribute('data-badge', 'speech');
