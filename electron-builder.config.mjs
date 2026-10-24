@@ -53,7 +53,8 @@ export default {
   ],
   // sherpa-onnx ships prebuilt binaries; there is nothing to compile.
   npmRebuild: false,
-  win: { target: [{ target: 'nsis', arch: ['x64'] }] },
+  // build/icon.png carries the Mac's margin and shadow, which leave it small on Windows.
+  win: { target: [{ target: 'nsis', arch: ['x64'] }], icon: 'build/icon-win.png' },
   nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true },
   // Apple Silicon runs no unsigned code, and packaging changed the app, so it is signed again: the
   // addon's libraries one by one, since --deep does not reach loose files in Resources, then the app.
