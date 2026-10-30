@@ -36,7 +36,7 @@
     "@cantoo/pdf-lib": "^2.11.1",
     "pdfjs-dist": "^6.4.299",
     "qrcode-generator": "^2.0.4",
-    "sherpa-onnx-node": "^1.13.8"
+    "sherpa-onnx-node": "^2.0.1"
   },
   "devDependencies": {
     "@electron/fuses": "2.1.3",
